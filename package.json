@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --turbopack -p 9002",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "NODE_ENV=production node src/server.js",
     "lint": "next lint",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop ecosystem.config.js",
@@ -37,6 +37,7 @@
     "@radix-ui/react-tabs": "^1.1.3",
     "@radix-ui/react-toast": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.1.8",
+    "bullmq": "^5.41.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -44,6 +45,7 @@
     "embla-carousel-react": "^8.6.0",
     "firebase": "^11.9.1",
     "genkit": "^1.28.0",
+    "ioredis": "^5.5.0",
     "lucide-react": "^0.475.0",
     "next": "15.5.9",
     "patch-package": "^8.0.0",
@@ -52,6 +54,8 @@
     "react-dom": "^19.2.1",
     "react-hook-form": "^7.54.2",
     "recharts": "^2.15.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.24.2"

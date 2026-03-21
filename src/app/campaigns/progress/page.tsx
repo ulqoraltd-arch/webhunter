@@ -1,17 +1,18 @@
+
 "use client"
 
 import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Activity, Globe, Mail, Clock, RefreshCw, Server, ShieldCheck, Terminal, Network, Shield } from "lucide-react"
+import { Activity, Globe, Mail, Clock, RefreshCw, Server, Terminal, Network } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useFirestore, useUser, useDoc, useMemoFirebase } from "@/firebase"
-import { doc, updateDoc, collection, addDoc, serverTimestamp, increment } from "firebase/firestore"
-import { processDomainExtraction, ScrapingJob } from "@/app/lib/scraper-engine"
+import { doc } from "firebase/firestore"
 import { format } from "date-fns"
+import { io, Socket } from "socket.io-client"
 
 function ProgressContent() {
   const searchParams = useSearchParams()
@@ -25,94 +26,40 @@ function ProgressContent() {
     return doc(db, "admins", user.uid, "campaigns", campId, "runs", runId)
   }, [db, user, campId, runId])
 
-  const campaignRef = useMemoFirebase(() => {
-    if (!db || !user || !campId) return null
-    return doc(db, "admins", user.uid, "campaigns", campId)
-  }, [db, user, campId])
-
   const { data: runData, isLoading: isRunLoading } = useDoc(runRef)
 
   const [activeScans, setActiveScans] = useState<string[]>([])
   const [recentSuccesses, setRecentSuccesses] = useState<any[]>([])
+  const [socket, setSocket] = useState<Socket | null>(null)
 
   useEffect(() => {
-    if (!runData || runData.status !== "Running" || !user || !campId || !runId || !runRef || !campaignRef) return
+    if (!campId) return
 
-    const interval = setInterval(async () => {
-      const domain = `node-${Math.floor(Math.random() * 10000)}.ai`
-      setActiveScans(prev => [domain, ...prev].slice(0, 6))
+    // Initialize Socket.IO connection to the custom server
+    const newSocket = io()
+    setSocket(newSocket)
 
-      const job: ScrapingJob = { domain, campaignId: campId, adminId: user.uid, runId, retryCount: 0 }
-      const result = await processDomainExtraction(job, Math.floor(Math.random() * 100))
+    newSocket.on('connect', () => {
+      console.log('[SOCKET] Connected to production telemetry server')
+      newSocket.emit('join-campaign', campId)
+    })
 
-      if (result.status === 'success') {
-        const validCount = result.emails.filter(e => e.isValid).length
-        const flaggedCount = result.emails.length - validCount
-
-        updateDoc(runRef, {
-          progressUrlsProcessed: increment(1),
-          progressDomainsWithEmails: increment(1),
-          totalEmailsExtracted: increment(result.emails.length),
-          validEmailsExtracted: increment(validCount),
-          flaggedEmailsExtracted: increment(flaggedCount),
-          updatedAt: serverTimestamp()
-        })
-
-        updateDoc(campaignRef, {
-          totalDomainsFetched: increment(1),
-          totalEmailsExtracted: increment(result.emails.length),
-          validEmailsCount: increment(validCount),
-          flaggedEmailsCount: increment(flaggedCount),
-          updatedAt: serverTimestamp()
-        })
-
-        const domainCol = collection(db, "admins", user.uid, "campaigns", campId, "runs", runId, "domains")
-        const domainDocRef = await addDoc(domainCol, {
-          domainName: domain,
-          adminUserId: user.uid,
-          campaignId: campId,
-          campaignRunId: runId,
-          emailCount: result.emails.length,
-          status: result.status,
-          pageUrls: result.pagesScanned,
-          metadata: JSON.stringify(result.metadata),
-          lastScrapedAt: serverTimestamp(),
-          createdAt: serverTimestamp()
-        })
-
-        const emailCol = collection(db, "admins", user.uid, "campaigns", campId, "runs", runId, "domains", domainDocRef.id, "emails")
-        for (const email of result.emails) {
-          await addDoc(emailCol, {
-            emailAddress: email.address,
-            adminUserId: user.uid,
-            campaignId: campId,
-            campaignRunId: runId,
-            scrapedDomainId: domainDocRef.id,
-            isValid: email.isValid,
-            validationStatus: email.validationStatus,
-            urlFoundOn: result.pagesScanned[0],
-            createdAt: serverTimestamp()
-          })
-        }
-
-        if (Math.random() > 0.85) {
-          await addDoc(collection(db, "admins", user.uid, "notifications"), {
-            adminUserId: user.uid,
-            title: "Identity Verified",
-            description: `Node ${domain} synchronized. ${result.emails.length} identities added to repository.`,
-            timestamp: serverTimestamp(),
-            isRead: false,
-            eventType: "campaignCompleted",
-            createdAt: serverTimestamp()
-          })
-        }
-
-        setRecentSuccesses(prev => [{ domain, emails: result.emails.length, node: result.metadata.apiNode, timestamp: new Date() }, ...prev].slice(0, 5))
+    newSocket.on('progress-update', (data) => {
+      setActiveScans(prev => [data.domain, ...prev].slice(0, 6))
+      if (data.emailsFound > 0) {
+        setRecentSuccesses(prev => [{ 
+          domain: data.domain, 
+          emails: data.emailsFound, 
+          node: data.node, 
+          timestamp: new Date() 
+        }, ...prev].slice(0, 5))
       }
-    }, 3500)
+    })
 
-    return () => clearInterval(interval)
-  }, [runData, user, campId, runId, db, runRef, campaignRef])
+    return () => {
+      newSocket.close()
+    }
+  }, [campId])
 
   if (isRunLoading || !runData) return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-background text-primary">
@@ -139,18 +86,14 @@ function ProgressContent() {
                 </div>
               </div>
               <div>
-                <h1 className="text-5xl font-headline font-black text-white mb-2 italic uppercase tracking-tighter italic">Infrastructure Live Feed</h1>
+                <h1 className="text-5xl font-headline font-black text-white mb-2 italic uppercase tracking-tighter">Infrastructure Live Feed</h1>
                 <div className="flex items-center space-x-6">
                   <Badge className="bg-accent text-accent-foreground font-black px-5 py-1.5 tracking-[0.2em] text-[10px] shadow-[0_0_15px_rgba(90,212,255,0.4)]">{runData.status.toUpperCase()}</Badge>
                   <span className="text-[10px] font-black text-muted-foreground flex items-center uppercase tracking-[0.2em]">
-                    <Clock className="h-3.5 w-3.5 mr-2.5 text-primary" /> SESSION ACTIVE: {format(runData.startTime?.toDate() || new Date(), 'HH:mm:ss')}
+                    <Clock className="h-3.5 w-3.5 mr-2.5 text-primary" /> BULLMQ CLUSTER ACTIVE
                   </span>
                 </div>
               </div>
-            </div>
-            <div className="flex space-x-4">
-              <Button variant="outline" className="border-white/10 hover:bg-white/5 font-black text-[10px] tracking-[0.2em] px-8 h-14 rounded-2xl uppercase">Pause Cluster</Button>
-              <Button variant="destructive" className="font-black text-[10px] tracking-[0.2em] px-8 h-14 rounded-2xl uppercase shadow-[0_0_20px_rgba(239,68,68,0.3)]">Terminate Engine</Button>
             </div>
           </div>
 
@@ -163,11 +106,11 @@ function ProgressContent() {
             </div>
             <CardContent className="p-12 grid grid-cols-1 md:grid-cols-4 gap-16">
               <div className="space-y-4">
-                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Job Completion</p>
+                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Queue Progress</p>
                 <h2 className="text-7xl font-headline font-black text-white tabular-nums tracking-tighter text-glow">{progressPercent}%</h2>
               </div>
               <div className="space-y-4">
-                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Requests Dispatched</p>
+                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Dispatched</p>
                 <h2 className="text-6xl font-headline font-black text-white tabular-nums tracking-tighter italic">{(runData.progressUrlsProcessed || 0).toLocaleString()}</h2>
               </div>
               <div className="space-y-4">
@@ -175,7 +118,7 @@ function ProgressContent() {
                 <h2 className="text-6xl font-headline font-black text-accent tabular-nums tracking-tighter accent-glow italic">{(runData.progressDomainsWithEmails || 0).toLocaleString()}</h2>
               </div>
               <div className="space-y-4">
-                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Identities Verified</p>
+                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Identities</p>
                 <h2 className="text-6xl font-headline font-black text-primary tabular-nums tracking-tighter text-glow italic">{(runData.totalEmailsExtracted || 0).toLocaleString()}</h2>
               </div>
             </CardContent>
@@ -187,10 +130,10 @@ function ProgressContent() {
               <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between relative z-10">
                 <CardTitle className="text-2xl font-headline font-black italic flex items-center uppercase tracking-tight">
                   <Terminal className="h-6 w-6 mr-4 text-primary" />
-                  Cluster Telemetry
+                  BullMQ Worker Feed
                 </CardTitle>
                 <div className="flex items-center space-x-3">
-                  <span className="text-[10px] font-black text-primary uppercase animate-pulse">Live</span>
+                  <span className="text-[10px] font-black text-primary uppercase animate-pulse">Socket Live</span>
                   <RefreshCw className="h-5 w-5 text-primary/40 animate-spin" />
                 </div>
               </CardHeader>
@@ -198,13 +141,13 @@ function ProgressContent() {
                 {activeScans.map((domain, i) => (
                   <div key={i} className="flex items-center justify-between p-5 bg-white/[0.03] rounded-2xl border border-white/5 text-[12px] font-code group hover:bg-white/[0.06] transition-all duration-500">
                     <div className="flex items-center space-x-4">
-                       <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_10px_#6366f1]" />
+                       <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                        <span className="text-white/80 truncate max-w-[250px] font-medium tracking-tight">{domain}</span>
                     </div>
-                    <Badge variant="outline" className="text-[10px] font-black tracking-[0.2em] border-primary/30 text-primary bg-primary/5 uppercase px-3 py-1">Layer 3 Scan</Badge>
+                    <Badge variant="outline" className="text-[10px] font-black tracking-[0.2em] border-primary/30 text-primary bg-primary/5 uppercase px-3 py-1">Worker Task</Badge>
                   </div>
                 ))}
-                {activeScans.length === 0 && <p className="text-sm text-muted-foreground italic text-center py-16 opacity-40 uppercase font-black tracking-[0.3em]">Handshaking with API nodes...</p>}
+                {activeScans.length === 0 && <p className="text-sm text-muted-foreground italic text-center py-16 opacity-40 uppercase font-black tracking-[0.3em]">Waiting for queue heartbeat...</p>}
               </CardContent>
             </Card>
 
@@ -213,22 +156,22 @@ function ProgressContent() {
               <CardHeader className="p-8 border-b border-white/5 relative z-10">
                 <CardTitle className="text-2xl font-headline font-black italic flex items-center uppercase tracking-tight">
                   <Server className="h-6 w-6 mr-4 text-accent" />
-                  Validated Node Output
+                  Validated Extraction Sync
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-8 space-y-5 relative z-10">
                  {recentSuccesses.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between p-5 bg-white/[0.03] rounded-2xl border border-accent/10 group hover:border-accent/40 transition-all duration-500 hover:scale-[1.02]">
+                  <div key={i} className="flex items-center justify-between p-5 bg-white/[0.03] rounded-2xl border border-accent/10 group hover:border-accent/40 transition-all duration-500">
                     <div className="flex items-center space-x-5">
                       <div className="p-3 bg-accent/5 rounded-xl border border-accent/10">
                         <Globe className="h-6 w-6 text-accent/80" />
                       </div>
                       <div>
                         <p className="text-md font-black text-white tracking-tight">{item.domain}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.2em] mt-1 opacity-60">AUTH: {item.node} • {format(item.timestamp, 'HH:mm:ss')}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.2em] mt-1 opacity-60">NODE: {item.node}</p>
                       </div>
                     </div>
-                    <Badge variant="secondary" className="bg-accent/10 text-accent font-black tracking-tighter text-sm px-4 py-1.5 rounded-xl border border-accent/20">+{item.emails} IDS</Badge>
+                    <Badge variant="secondary" className="bg-accent/10 text-accent font-black text-sm px-4 py-1.5 rounded-xl">+{item.emails} IDS</Badge>
                   </div>
                 ))}
                 {recentSuccesses.length === 0 && <p className="text-sm text-muted-foreground italic text-center py-16 opacity-40 uppercase font-black tracking-[0.3em]">Awaiting extraction sync...</p>}
@@ -243,12 +186,7 @@ function ProgressContent() {
 
 export default function CampaignProgressPage() {
   return (
-    <Suspense fallback={
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-background text-primary">
-        <Network className="h-12 w-12 animate-pulse mb-4" />
-        <p className="text-[10px] font-black uppercase tracking-[0.5em] text-glow">Initializing Clusters...</p>
-      </div>
-    }>
+    <Suspense fallback={null}>
       <ProgressContent />
     </Suspense>
   )
