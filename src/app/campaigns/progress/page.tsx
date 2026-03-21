@@ -5,12 +5,12 @@ import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Activity, Globe, Mail, Clock, RefreshCw, StopCircle, CheckCircle2, Server } from "lucide-react"
+import { Activity, Globe, Mail, Clock, RefreshCw, Server } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useFirestore, useUser, useDoc, useMemoFirebase } from "@/firebase"
-import { doc, updateDoc, collection, addDoc, serverTimestamp } from "firebase/firestore"
+import { doc, updateDoc, collection, addDoc, serverTimestamp, increment } from "firebase/firestore"
 import { processDomainExtraction, ScrapingJob } from "@/app/lib/scraper-engine"
 
 function ProgressContent() {
@@ -20,20 +20,23 @@ function ProgressContent() {
   const db = useFirestore()
   const { user } = useUser()
 
-  // Real-time Firestore document sync
   const runRef = useMemoFirebase(() => {
     if (!db || !user || !campId || !runId) return null
     return doc(db, "admins", user.uid, "campaigns", campId, "runs", runId)
   }, [db, user, campId, runId])
+
+  const campaignRef = useMemoFirebase(() => {
+    if (!db || !user || !campId) return null
+    return doc(db, "admins", user.uid, "campaigns", campId)
+  }, [db, user, campId])
 
   const { data: runData, isLoading: isRunLoading } = useDoc(runRef)
 
   const [activeScans, setActiveScans] = useState<string[]>([])
   const [recentSuccesses, setRecentSuccesses] = useState<any[]>([])
 
-  // Engine Simulation (Simulating the backend workers)
   useEffect(() => {
-    if (!runData || runData.status !== "Running" || !user || !campId || !runId) return
+    if (!runData || runData.status !== "Running" || !user || !campId || !runId || !runRef || !campaignRef) return
 
     const interval = setInterval(async () => {
       const domain = `domain-${Math.floor(Math.random() * 10000)}.com`
@@ -43,18 +46,35 @@ function ProgressContent() {
       const result = await processDomainExtraction(job, Math.floor(Math.random() * 100))
 
       if (result.status === 'success') {
+        const validCount = result.emails.filter(e => e.isValid).length
+        const flaggedCount = result.emails.length - validCount
+
         // 1. Update Aggregate Stats in Run Doc
-        updateDoc(runRef!, {
-          progressUrlsProcessed: (runData.progressUrlsProcessed || 0) + 1,
-          progressDomainsWithEmails: (runData.progressDomainsWithEmails || 0) + 1,
-          totalEmailsExtracted: (runData.totalEmailsExtracted || 0) + result.emails.length,
+        updateDoc(runRef, {
+          progressUrlsProcessed: increment(1),
+          progressDomainsWithEmails: increment(1),
+          totalEmailsExtracted: increment(result.emails.length),
+          validEmailsExtracted: increment(validCount),
+          flaggedEmailsExtracted: increment(flaggedCount),
           updatedAt: serverTimestamp()
         })
 
-        // 2. Log Scraped Domain
+        // 2. Update Global Campaign Stats
+        updateDoc(campaignRef, {
+          totalDomainsFetched: increment(1),
+          totalEmailsExtracted: increment(result.emails.length),
+          validEmailsCount: increment(validCount),
+          flaggedEmailsCount: increment(flaggedCount),
+          updatedAt: serverTimestamp()
+        })
+
+        // 3. Log Scraped Domain
         const domainCol = collection(db, "admins", user.uid, "campaigns", campId, "runs", runId, "domains")
-        await addDoc(domainCol, {
+        const domainDocRef = await addDoc(domainCol, {
           domainName: domain,
+          adminUserId: user.uid,
+          campaignId: campId,
+          campaignRunId: runId,
           emailCount: result.emails.length,
           status: result.status,
           pageUrls: result.pagesScanned,
@@ -63,16 +83,32 @@ function ProgressContent() {
           createdAt: serverTimestamp()
         })
 
+        // 4. Log Individual Emails
+        const emailCol = collection(db, "admins", user.uid, "campaigns", campId, "runs", runId, "domains", domainDocRef.id, "emails")
+        for (const email of result.emails) {
+          await addDoc(emailCol, {
+            emailAddress: email.address,
+            adminUserId: user.uid,
+            campaignId: campId,
+            campaignRunId: runId,
+            scrapedDomainId: domainDocRef.id,
+            isValid: email.isValid,
+            validationStatus: email.validationStatus,
+            urlFoundOn: result.pagesScanned[0],
+            createdAt: serverTimestamp()
+          })
+        }
+
         setRecentSuccesses(prev => [{ domain, emails: result.emails.length, node: result.metadata.apiNode }, ...prev].slice(0, 4))
       }
     }, 4000)
 
     return () => clearInterval(interval)
-  }, [runData, user, campId, runId, db, runRef])
+  }, [runData, user, campId, runId, db, runRef, campaignRef])
 
   if (isRunLoading || !runData) return <div className="p-8 text-white">Connecting to cluster...</div>
 
-  const progressPercent = Math.floor((runData.progressUrlsProcessed / runData.progressTotalUrlsToProcess) * 100) || 0
+  const progressPercent = Math.min(100, Math.floor((runData.progressUrlsProcessed / (runData.progressTotalUrlsToProcess || 1)) * 100)) || 0
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -116,15 +152,15 @@ function ProgressContent() {
               </div>
               <div className="space-y-2">
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Requests Dispatched</p>
-                <h2 className="text-3xl font-headline font-bold text-white">{runData.progressUrlsProcessed.toLocaleString()}</h2>
+                <h2 className="text-3xl font-headline font-bold text-white">{(runData.progressUrlsProcessed || 0).toLocaleString()}</h2>
               </div>
               <div className="space-y-2">
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Domains Yielded</p>
-                <h2 className="text-3xl font-headline font-bold text-accent">{runData.progressDomainsWithEmails.toLocaleString()}</h2>
+                <h2 className="text-3xl font-headline font-bold text-accent">{(runData.progressDomainsWithEmails || 0).toLocaleString()}</h2>
               </div>
               <div className="space-y-2">
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Identities Extracted</p>
-                <h2 className="text-3xl font-headline font-bold text-primary">{runData.totalEmailsExtracted.toLocaleString()}</h2>
+                <h2 className="text-3xl font-headline font-bold text-primary">{(runData.totalEmailsExtracted || 0).toLocaleString()}</h2>
               </div>
             </CardContent>
           </Card>

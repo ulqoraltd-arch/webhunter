@@ -5,16 +5,15 @@ import { useState } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
 import { 
-  Database, 
   Search, 
   Filter, 
   Download, 
-  ExternalLink, 
   Mail, 
   Globe, 
   CheckCircle,
   FileText,
-  Loader2
+  Loader2,
+  X
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -24,7 +23,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase"
-import { collection, query, where, orderBy } from "firebase/firestore"
+import { collection, query, orderBy, limit } from "firebase/firestore"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 export default function ResultsPage() {
   const { user } = useUser()
@@ -33,36 +33,41 @@ export default function ResultsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedDomain, setSelectedDomain] = useState<any | null>(null)
 
-  // Fetch all campaigns for this user to allow filtering
+  // Fetch all campaigns for reference
   const campaignsQuery = useMemoFirebase(() => {
     if (!db || !user) return null
     return collection(db, "admins", user.uid, "campaigns")
   }, [db, user])
 
-  const { data: campaigns, isLoading: campaignsLoading } = useCollection(campaignsQuery)
+  const { data: campaigns } = useCollection(campaignsQuery)
 
-  // In a real production app with nested domains, we'd use a Collection Group query 
-  // or a flat 'all-results' collection for global search. 
-  // For this prototype, we'll display the latest domains from the first active campaign found.
-  const activeCampaignId = campaigns?.[0]?.id
-
+  // Fetch real-time domains across the platform (simulated by showing most recent)
+  // In production, we'd use a flat results collection for cross-campaign search
   const domainsQuery = useMemoFirebase(() => {
-    if (!db || !user || !activeCampaignId) return null
-    // Assuming we fetch domains from the campaign level if denormalized, 
-    // but here we'll simulate a recent domains view.
-    return collection(db, "admins", user.uid, "campaigns", activeCampaignId, "runs", campaigns?.[0]?.lastRunId || "", "domains")
-  }, [db, user, activeCampaignId, campaigns])
+    if (!db || !user || !campaigns?.[0]) return null
+    const firstCamp = campaigns[0]
+    return collection(db, "admins", user.uid, "campaigns", firstCamp.id, "runs", firstCamp.lastRunId || "active", "domains")
+  }, [db, user, campaigns])
 
   const { data: domains, isLoading: domainsLoading } = useCollection(domainsQuery)
+
+  // Nested emails query for selected domain
+  const emailsQuery = useMemoFirebase(() => {
+    if (!db || !user || !selectedDomain) return null
+    return collection(db, "admins", user.uid, "campaigns", selectedDomain.campaignId, "runs", selectedDomain.campaignRunId, "domains", selectedDomain.id, "emails")
+  }, [db, user, selectedDomain])
+
+  const { data: extractedEmails, isLoading: emailsLoading } = useCollection(emailsQuery)
 
   const filteredDomains = domains?.filter(d => 
     d.domainName.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const handleExportDomain = (domain: any) => {
+    const emailsStr = extractedEmails?.map(e => e.emailAddress).join('; ') || "Pending..."
     const csvContent = "data:text/csv;charset=utf-8," 
       + "Domain,EmailsFound,Status,PagesScanned\n"
-      + `${domain.domainName},${domain.emailCount},${domain.status},"${domain.pageUrls?.join(', ')}"`
+      + `${domain.domainName},"${emailsStr}",${domain.status},"${domain.pageUrls?.join(', ')}"`
     
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
@@ -153,7 +158,7 @@ export default function ResultsPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {filteredDomains?.length === 0 && (
+                    {(!filteredDomains || filteredDomains.length === 0) && (
                       <TableRow>
                         <TableCell colSpan={4} className="text-center py-20 text-muted-foreground italic">
                           No data found in the current cluster range.
@@ -169,68 +174,79 @@ export default function ResultsPage() {
       </div>
 
       <Sheet open={!!selectedDomain} onOpenChange={() => setSelectedDomain(null)}>
-        <SheetContent className="w-[600px] sm:max-w-xl bg-card border-l-white/10">
-          <SheetHeader className="mb-8">
-            <div className="flex items-center justify-between">
-               <div className="p-3 bg-primary/10 rounded-xl mb-4">
-                <Globe className="h-8 w-8 text-primary" />
-              </div>
-              <Button 
-                size="sm" 
-                className="bg-accent text-accent-foreground hover:bg-accent/90"
-                onClick={() => handleExportDomain(selectedDomain)}
-              >
-                <Download className="h-4 w-4 mr-2" /> Export CSV
-              </Button>
-            </div>
-            <SheetTitle className="text-3xl font-headline font-bold text-white">{selectedDomain?.domainName}</SheetTitle>
-            <SheetDescription className="text-muted-foreground flex items-center">
-              Campaign ID: <span className="text-white ml-2">{selectedDomain?.campaignId}</span>
-            </SheetDescription>
-          </SheetHeader>
-
-          <Tabs defaultValue="emails" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 bg-secondary/50">
-              <TabsTrigger value="emails">Emails ({selectedDomain?.emailCount})</TabsTrigger>
-              <TabsTrigger value="pages">Pages Scanned</TabsTrigger>
-              <TabsTrigger value="meta">Metadata</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="emails" className="pt-6 space-y-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-headline font-bold text-white uppercase tracking-widest">Discovered Identities</h4>
-                <Badge variant="outline" className="text-accent border-accent/20">Validated</Badge>
-              </div>
-              {/* In a production app, we'd fetch from the 'emails' subcollection here */}
-              <div className="space-y-3">
-                {Array.from({ length: selectedDomain?.emailCount || 0 }).map((_, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl group hover:border-primary/30 transition-all">
-                    <div className="flex items-center space-x-3">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium text-white italic">identity_{i+1}@{selectedDomain?.domainName}</span>
-                    </div>
+        <SheetContent className="w-[600px] sm:max-w-xl bg-card border-l-white/10 text-white p-0">
+          <ScrollArea className="h-full">
+            <div className="p-8 space-y-8">
+              <SheetHeader>
+                <div className="flex items-center justify-between">
+                   <div className="p-3 bg-primary/10 rounded-xl">
+                    <Globe className="h-8 w-8 text-primary" />
                   </div>
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="pages" className="pt-6 space-y-3">
-               {selectedDomain?.pageUrls?.map((page: string, i: number) => (
-                <div key={i} className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg border border-white/5 text-xs font-code">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground truncate">{page}</span>
+                  <Button 
+                    size="sm" 
+                    className="bg-accent text-accent-foreground hover:bg-accent/90"
+                    onClick={() => handleExportDomain(selectedDomain)}
+                  >
+                    <Download className="h-4 w-4 mr-2" /> Export CSV
+                  </Button>
                 </div>
-              ))}
-            </TabsContent>
+                <SheetTitle className="text-3xl font-headline font-bold text-white">{selectedDomain?.domainName}</SheetTitle>
+                <SheetDescription className="text-muted-foreground flex items-center">
+                  Source: <span className="text-white ml-2">{campaigns?.find(c => c.id === selectedDomain?.campaignId)?.name}</span>
+                </SheetDescription>
+              </SheetHeader>
 
-            <TabsContent value="meta" className="pt-6">
-              <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/5">
-                <pre className="text-[10px] text-accent font-code whitespace-pre-wrap">
-                  {selectedDomain?.metadata ? JSON.parse(selectedDomain.metadata) : 'No metadata available'}
-                </pre>
-              </div>
-            </TabsContent>
-          </Tabs>
+              <Tabs defaultValue="emails" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 bg-secondary/50">
+                  <TabsTrigger value="emails">Emails ({selectedDomain?.emailCount})</TabsTrigger>
+                  <TabsTrigger value="pages">Pages Scanned</TabsTrigger>
+                  <TabsTrigger value="meta">Metadata</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="emails" className="pt-6 space-y-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-headline font-bold text-white uppercase tracking-widest">Discovered Identities</h4>
+                    <Badge variant="outline" className="text-accent border-accent/20">Verified Results</Badge>
+                  </div>
+                  
+                  {emailsLoading ? (
+                    <div className="py-10 flex justify-center"><Loader2 className="animate-spin h-6 w-6 text-primary" /></div>
+                  ) : (
+                    <div className="space-y-3">
+                      {extractedEmails?.map((email, i) => (
+                        <div key={i} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl group hover:border-primary/30 transition-all">
+                          <div className="flex items-center space-x-3">
+                            <Mail className={`h-4 w-4 ${email.isValid ? 'text-accent' : 'text-destructive'}`} />
+                            <span className="text-sm font-medium text-white italic">{email.emailAddress}</span>
+                          </div>
+                          <Badge variant="secondary" className={email.isValid ? "bg-accent/10 text-accent" : "bg-destructive/10 text-destructive"}>
+                            {email.validationStatus}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="pages" className="pt-6 space-y-3">
+                   {selectedDomain?.pageUrls?.map((page: string, i: number) => (
+                    <div key={i} className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg border border-white/5 text-xs font-code">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground truncate">{page}</span>
+                    </div>
+                  ))}
+                </TabsContent>
+
+                <TabsContent value="meta" className="pt-6">
+                  <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/5">
+                    <pre className="text-[10px] text-accent font-code whitespace-pre-wrap">
+                      {selectedDomain?.metadata ? JSON.stringify(JSON.parse(selectedDomain.metadata), null, 2) : 'No metadata available'}
+                    </pre>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </ScrollArea>
         </SheetContent>
       </Sheet>
     </div>

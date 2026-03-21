@@ -4,10 +4,9 @@
 import { useState } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { ShieldCheck, Mail, CheckCircle, AlertCircle, Search, Filter, Database, MoreHorizontal, Loader2 } from "lucide-react"
+import { ShieldCheck, CheckCircle, AlertCircle, Search, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -20,7 +19,6 @@ export default function ValidationPage() {
   const db = useFirestore()
   const [selected, setSelected] = useState<any | null>(null)
 
-  // Aggregating real data from campaigns
   const campaignsQuery = useMemoFirebase(() => {
     if (!db || !user) return null
     return collection(db, "admins", user.uid, "campaigns")
@@ -69,7 +67,7 @@ export default function ValidationPage() {
             <Card className="bg-card border-white/5 border-l-4 border-l-accent shadow-xl">
               <CardContent className="p-6">
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Extraction Pipeline</p>
-                <h3 className="text-3xl font-headline font-bold text-white">{campaigns?.length || 0}</h3>
+                <h3 className="text-3xl font-headline font-bold text-white">{(campaigns?.length || 0).toLocaleString()}</h3>
                 <p className="text-xs text-muted-foreground mt-2 font-medium">Active Deployment Nodes</p>
               </CardContent>
             </Card>
@@ -138,13 +136,13 @@ export default function ValidationPage() {
       </div>
 
       <Sheet open={!!selected} onOpenChange={() => setSelected(null)}>
-        <SheetContent className="w-[500px] sm:max-w-lg bg-card border-l-white/10">
+        <SheetContent className="w-[500px] sm:max-w-lg bg-card border-l-white/10 text-white">
           <SheetHeader className="mb-8">
             <div className="p-3 bg-accent/10 rounded-xl mb-4 inline-block w-fit">
               <ShieldCheck className="h-8 w-8 text-accent" />
             </div>
             <SheetTitle className="text-3xl font-headline font-bold text-white">{selected?.name}</SheetTitle>
-            <SheetDescription>Real-time validation snapshot for this campaign cluster.</SheetDescription>
+            <SheetDescription className="text-muted-foreground">Real-time validation snapshot for this campaign cluster.</SheetDescription>
           </SheetHeader>
 
           <Tabs defaultValue="stats" className="w-full">
