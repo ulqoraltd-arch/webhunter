@@ -4,38 +4,38 @@
 
 @layer base {
   :root {
-    --background: 240 22% 10%;
+    --background: 240 22% 5%;
     --foreground: 0 0% 100%;
-    --card: 240 22% 12%;
+    --card: 240 22% 8%;
     --card-foreground: 0 0% 100%;
-    --popover: 240 22% 12%;
+    --popover: 240 22% 8%;
     --popover-foreground: 0 0% 100%;
     --primary: 240 81% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 22% 18%;
+    --secondary: 240 22% 12%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 240 22% 18%;
-    --muted-foreground: 240 10% 70%;
+    --muted: 240 22% 15%;
+    --muted-foreground: 240 10% 60%;
     --accent: 195 100% 68%;
-    --accent-foreground: 240 22% 10%;
+    --accent-foreground: 240 22% 5%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 22% 18%;
-    --input: 240 22% 18%;
+    --border: 240 22% 12%;
+    --input: 240 22% 12%;
     --ring: 240 81% 60%;
-    --radius: 0.75rem;
+    --radius: 1rem;
     --chart-1: 240 81% 60%;
     --chart-2: 195 100% 68%;
     --chart-3: 280 65% 60%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --sidebar-background: 240 22% 8%;
-    --sidebar-foreground: 240 10% 80%;
+    --sidebar-background: 240 22% 4%;
+    --sidebar-foreground: 240 10% 70%;
     --sidebar-primary: 240 81% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 22% 15%;
+    --sidebar-accent: 240 22% 10%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 240 22% 15%;
+    --sidebar-border: 240 22% 10%;
     --sidebar-ring: 240 81% 60%;
   }
 }
@@ -48,12 +48,12 @@
     @apply bg-background text-foreground font-body antialiased;
   }
   h1, h2, h3, h4, h5, h6 {
-    @apply font-headline tracking-tight;
+    @apply font-headline tracking-tighter;
   }
 }
 
 .glass-morphism {
-  @apply bg-card/60 backdrop-blur-md border border-white/10;
+  @apply bg-card/40 backdrop-blur-xl border border-white/5;
 }
 
 .glow-primary {
@@ -62,4 +62,22 @@
 
 .glow-accent {
   box-shadow: 0 0 20px -5px hsl(var(--accent) / 0.5);
+}
+
+@keyframes scanning {
+  0% { transform: translateY(-100%); opacity: 0; }
+  50% { opacity: 0.5; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+.animate-scanning {
+  animation: scanning 3s linear infinite;
+}
+
+.text-glow {
+  text-shadow: 0 0 10px hsla(var(--primary), 0.5);
+}
+
+.accent-glow {
+  text-shadow: 0 0 10px hsla(var(--accent), 0.5);
 }
