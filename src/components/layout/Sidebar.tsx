@@ -1,4 +1,3 @@
-
 "use client"
 
 import Link from "next/link"
@@ -27,7 +26,7 @@ const navigation = [
   { name: 'Admin Panel', href: '/admin', icon: Settings, superOnly: true },
 ]
 
-export function Sidebar() {
+export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname()
   const { user } = useUser()
   const db = useFirestore()
@@ -61,7 +60,7 @@ export function Sidebar() {
   })
 
   return (
-    <div className="flex flex-col w-64 bg-sidebar border-r h-full relative">
+    <div className={cn("hidden md:flex flex-col w-64 bg-sidebar border-r h-full relative", className)}>
       <div className="flex items-center h-16 px-6 border-b">
         <Zap className="h-6 w-6 text-primary mr-2 fill-primary" />
         <span className="text-xl font-headline font-bold text-white">WebHunter<span className="text-primary">Pro</span></span>

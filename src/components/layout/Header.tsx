@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, Search, Cpu, Sparkles, CheckCircle, AlertCircle, FileText, Loader2 } from "lucide-react"
+import { Bell, Search, Cpu, Sparkles, CheckCircle, AlertCircle, FileText, Loader2, Menu } from "lucide-react"
 import { 
   Popover,
   PopoverContent,
@@ -12,6 +12,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase"
 import { collection, query, orderBy, limit, doc, updateDoc } from "firebase/firestore"
 import { formatDistanceToNow } from "date-fns"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sidebar } from "./Sidebar"
 
 export function Header() {
   const { user } = useUser()
@@ -47,14 +49,28 @@ export function Header() {
 
   return (
     <header className="h-20 border-b bg-background/80 backdrop-blur-xl sticky top-0 z-40 px-8 flex items-center justify-between border-white/5 pt-4">
-      <div className="flex items-center space-x-10">
-        <div className="flex items-center text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
-          <div className="h-2 w-2 rounded-full bg-accent mr-3 animate-pulse shadow-[0_0_10px_hsl(var(--accent))]" />
-          Engine Status: <span className="text-white ml-2 accent-glow">Operational</span>
-        </div>
-        <div className="flex items-center text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
-          <Cpu className="h-4 w-4 mr-2 text-primary" />
-          Worker Load: <span className="text-white ml-2 text-glow">24%</span>
+      <div className="flex items-center">
+        {/* Mobile Sidebar Trigger */}
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="md:hidden mr-4 h-11 w-11 rounded-2xl hover:bg-white/5 group">
+              <Menu className="h-6 w-6 text-muted-foreground group-hover:text-white transition-colors" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-64 bg-sidebar border-none">
+            <Sidebar className="flex" />
+          </SheetContent>
+        </Sheet>
+
+        <div className="flex items-center space-x-10">
+          <div className="flex items-center text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
+            <div className="h-2 w-2 rounded-full bg-accent mr-3 animate-pulse shadow-[0_0_10px_hsl(var(--accent))]" />
+            Engine Status: <span className="text-white ml-2 accent-glow">Operational</span>
+          </div>
+          <div className="flex items-center text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
+            <Cpu className="h-4 w-4 mr-2 text-primary" />
+            Worker Load: <span className="text-white ml-2 text-glow">24%</span>
+          </div>
         </div>
       </div>
 
