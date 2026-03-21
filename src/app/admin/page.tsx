@@ -1,10 +1,10 @@
 
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Settings, Users, Shield, Database, Plus, Edit2, Trash2, CheckCircle2, Search, X } from "lucide-react"
+import { Users, Shield, Database, Plus, Edit2, Trash2, Key, Search, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase"
 import { collection, doc, deleteDoc, serverTimestamp, setDoc } from "firebase/firestore"
-import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 
 export default function AdminPage() {
   const { toast } = useToast()
@@ -27,14 +27,36 @@ export default function AdminPage() {
   const tldsQuery = useMemoFirebase(() => collection(db, "tlds"), [db])
   const categoriesQuery = useMemoFirebase(() => collection(db, "categories"), [db])
   const countriesQuery = useMemoFirebase(() => collection(db, "countries"), [db])
+  const adminsQuery = useMemoFirebase(() => collection(db, "admins"), [db])
 
   const { data: dbTlds } = useCollection(tldsQuery)
   const { data: dbCategories } = useCollection(categoriesQuery)
   const { data: dbCountries } = useCollection(countriesQuery)
+  const { data: dbAdmins } = useCollection(adminsQuery)
 
   const [newTld, setNewTld] = useState("")
   const [newCategory, setNewCategory] = useState("")
   const [newCountry, setNewCountry] = useState({ name: "", iso: "" })
+  
+  const [isAdminDialogOpen, setIsAdminDialogOpen] = useState(false)
+  const [newAdmin, setNewAdmin] = useState({ name: "", passkey: "" })
+
+  const handleAddAdmin = async () => {
+    if (!newAdmin.name || !newAdmin.passkey) return
+    const adminId = newAdmin.name.toLowerCase().replace(/\s/g, '-')
+    
+    await setDoc(doc(db, "admins", adminId), {
+      name: newAdmin.name,
+      passkey: newAdmin.passkey,
+      role: "System Admin",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+
+    toast({ title: "Personnel Added", description: `${newAdmin.name} has been granted access.` })
+    setIsAdminDialogOpen(false)
+    setNewAdmin({ name: "", passkey: "" })
+  }
 
   const handleAddTld = () => {
     const formatted = newTld.startsWith(".") ? newTld : `.${newTld}`
@@ -108,7 +130,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <Tabs defaultValue="metadata" className="w-full">
+          <Tabs defaultValue="personnel" className="w-full">
             <TabsList className="bg-secondary/50 p-1 mb-8">
               <TabsTrigger value="personnel" className="flex items-center px-6">
                 <Users className="h-4 w-4 mr-2" /> Personnel
@@ -126,9 +148,9 @@ export default function AdminPage() {
                 <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <CardTitle className="font-headline">System Administrators</CardTitle>
-                    <CardDescription>Manage accounts with backend access.</CardDescription>
+                    <CardDescription>Manage accounts with secure passkey access.</CardDescription>
                   </div>
-                  <Button className="bg-primary hover:bg-primary/90">
+                  <Button className="bg-primary hover:bg-primary/90" onClick={() => setIsAdminDialogOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" /> Create New Admin
                   </Button>
                 </CardHeader>
@@ -138,14 +160,11 @@ export default function AdminPage() {
                       <TableRow className="border-white/5">
                         <TableHead className="font-headline">Identity</TableHead>
                         <TableHead className="font-headline">Access Level</TableHead>
-                        <TableHead className="font-headline">Last Activity</TableHead>
                         <TableHead className="font-headline text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {[
-                        { name: 'System Admin', email: 'admin@webhunter.pro', role: 'Super Admin', last: 'Now' }
-                      ].map((admin, i) => (
+                      {dbAdmins?.map((admin, i) => (
                         <TableRow key={i} className="border-white/5">
                           <TableCell>
                             <div className="flex items-center space-x-3">
@@ -154,26 +173,39 @@ export default function AdminPage() {
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-white">{admin.name}</p>
-                                <p className="text-xs text-muted-foreground">{admin.email}</p>
+                                <div className="flex items-center text-xs text-muted-foreground">
+                                  <Key className="h-3 w-3 mr-1" /> Passkey Secured
+                                </div>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="border-primary/30 text-primary">{admin.role}</Badge>
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{admin.last}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end space-x-2">
                               <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-white">
                                 <Edit2 className="h-3.5 w-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10">
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDelete("admins", admin.id)}
+                              >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                           </TableCell>
                         </TableRow>
                       ))}
+                      {(!dbAdmins || dbAdmins.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">
+                            No additional personnel registered.
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -337,6 +369,43 @@ export default function AdminPage() {
             </TabsContent>
           </Tabs>
         </main>
+
+        <Dialog open={isAdminDialogOpen} onOpenChange={setIsAdminDialogOpen}>
+          <DialogContent className="bg-card border-white/10 text-white">
+            <DialogHeader>
+              <DialogTitle className="font-headline">Create Administrative Identity</DialogTitle>
+              <DialogDescription>Assign a name and secure passkey for this account.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Personnel Name</Label>
+                <Input 
+                  placeholder="e.g. Sarah Jenkins" 
+                  className="bg-secondary/30 border-white/10"
+                  value={newAdmin.name}
+                  onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Access Passkey</Label>
+                <div className="relative">
+                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    type="password"
+                    placeholder="Enter secure key" 
+                    className="bg-secondary/30 border-white/10 pl-10"
+                    value={newAdmin.passkey}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, passkey: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsAdminDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleAddAdmin}>Initialize Account</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

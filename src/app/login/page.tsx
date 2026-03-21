@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Shield, ArrowRight, Mail, Lock, Eye, EyeOff } from "lucide-react"
+import { Zap, Shield, ArrowRight, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,10 +24,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     const checkSetup = async () => {
-      const configRef = doc(db, "system", "config")
-      const configSnap = await getDoc(configRef)
-      if (!configSnap.exists()) {
-        setIsFirstRun(true)
+      try {
+        const configRef = doc(db, "system", "config")
+        const configSnap = await getDoc(configRef)
+        if (!configSnap.exists()) {
+          setIsFirstRun(true)
+        }
+      } catch (err) {
+        console.error("Setup check failed", err)
       }
     }
     checkSetup()
@@ -35,6 +39,7 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!password) return
     setIsLoading(true)
 
     try {
@@ -100,25 +105,11 @@ export default function LoginPage() {
           <CardDescription>
             {isFirstRun 
               ? "Set your master access key for this installation." 
-              : "Enter your credentials to access the secure dashboard."}
+              : "Enter your secure access key to establish connection."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="email">Work Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  id="email" 
-                  type="email" 
-                  placeholder="admin@webhunter.pro" 
-                  defaultValue="admin@webhunter.pro"
-                  className="bg-secondary/30 border-white/10 pl-10 h-11"
-                  readOnly
-                />
-              </div>
-            </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Access Key</Label>
@@ -134,6 +125,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
+                  required
                 />
                 <button
                   type="button"

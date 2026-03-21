@@ -1,6 +1,8 @@
+
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
 import { Sparkles, Plus, Globe, Tag, Flag, Search, Calendar as CalendarIcon, Zap, Target, Activity, X } from "lucide-react"
@@ -15,19 +17,28 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { suggestKeywordsForCampaign } from "@/ai/flows/ai-keyword-suggestion"
 import { useToast } from "@/hooks/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { FuturisticLoader } from "@/components/ui/futuristic-loader"
 import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
+import { useFirestore } from "@/firebase"
+import { collection, addDoc, serverTimestamp } from "firebase/firestore"
 
 export default function NewCampaignPage() {
+  const router = useRouter()
   const { toast } = useToast()
+  const db = useFirestore()
+  
+  const [campaignName, setCampaignName] = useState("")
   const [query, setQuery] = useState("")
   const [keywords, setKeywords] = useState<string[]>([])
   const [isSuggesting, setIsSuggesting] = useState(false)
+  const [isDeploying, setIsDeploying] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState<{shortTailKeywords: string[], longTailKeywords: string[]} | null>(null)
 
   // Multi-select states
   const [selectedTlds, setSelectedTlds] = useState<string[]>([".com"])
   const [selectedCategories, setSelectedCategories] = useState<string[]>(["SaaS", "Technology"])
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["US"])
+  const [targetQuota, setTargetQuota] = useState(2000)
 
   // Search filters
   const [tldSearch, setTldSearch] = useState("")
@@ -74,6 +85,45 @@ export default function NewCampaignPage() {
     }
   }
 
+  const handleDeploy = async () => {
+    if (!campaignName || keywords.length === 0) {
+      toast({ title: "Configuration incomplete", description: "Campaign name and keywords are required.", variant: "destructive" })
+      return
+    }
+
+    setIsDeploying(true)
+    
+    try {
+      // Create campaign in Firestore
+      const docRef = await addDoc(collection(db, "campaigns"), {
+        name: campaignName,
+        keywords,
+        tldIds: selectedTlds,
+        categoryIds: selectedCategories,
+        countryIds: selectedCountries,
+        targetEmailCount: targetQuota,
+        status: "Running",
+        totalDomainsFetched: 0,
+        totalEmailsExtracted: 0,
+        validEmailsCount: 0,
+        flaggedEmailsCount: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+
+      toast({ title: "Engine Deployed", description: "Campaign workers are spinning up." })
+      
+      // Simulate backend delay then redirect to progress
+      setTimeout(() => {
+        router.push('/campaigns/progress')
+      }, 3000)
+
+    } catch (err) {
+      setIsDeploying(false)
+      toast({ title: "Deployment Failed", description: "Could not initialize extraction layers.", variant: "destructive" })
+    }
+  }
+
   const toggleTld = (tld: string) => {
     setSelectedTlds(prev => prev.includes(tld) ? prev.filter(t => t !== tld) : [...prev, tld])
   }
@@ -95,6 +145,7 @@ export default function NewCampaignPage() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <FuturisticLoader isVisible={isDeploying} status={`Initializing extraction cluster for ${campaignName}...`} />
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-y-auto">
         <Header />
@@ -107,12 +158,35 @@ export default function NewCampaignPage() {
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="h-11 border-white/10 bg-white/5">Save as Blueprint</Button>
-              <Button className="h-11 bg-primary hover:bg-primary/90 px-8 font-bold glow-primary">Deploy Engine</Button>
+              <Button 
+                className="h-11 bg-primary hover:bg-primary/90 px-8 font-bold glow-primary"
+                onClick={handleDeploy}
+                disabled={isDeploying}
+              >
+                Deploy Engine
+              </Button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
+              <Card className="bg-card border-white/5 shadow-2xl">
+                <CardHeader>
+                  <CardTitle className="font-headline text-xl">General Protocol</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Campaign Descriptor</Label>
+                    <Input 
+                      placeholder="e.g. Q4 Market Expansion" 
+                      className="bg-secondary/30 border-white/10 h-12"
+                      value={campaignName}
+                      onChange={(e) => setCampaignName(e.target.value)}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card className="bg-card border-white/5 shadow-2xl overflow-visible">
                 <CardHeader>
                   <CardTitle className="flex items-center font-headline text-xl">
@@ -127,7 +201,7 @@ export default function NewCampaignPage() {
                     <div className="relative group">
                       <Input 
                         id="keywords"
-                        placeholder="Type keyword and press Enter (e.g. 'Software as a Service')" 
+                        placeholder="Type keyword and press Enter" 
                         className="bg-secondary/30 border-white/10 pr-14 h-14 text-lg focus:ring-primary focus:border-primary/50 transition-all"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -228,12 +302,14 @@ export default function NewCampaignPage() {
                     <div className="space-y-4">
                       <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Domain Quota (Valid Emails Only)</Label>
                       <div className="relative">
-                        <Input type="number" defaultValue={2000} className="bg-secondary/30 border-white/10 h-14 text-xl font-bold pl-4" />
+                        <Input 
+                          type="number" 
+                          value={targetQuota} 
+                          onChange={(e) => setTargetQuota(Number(e.target.value))}
+                          className="bg-secondary/30 border-white/10 h-14 text-xl font-bold pl-4" 
+                        />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-bold bg-white/5 px-2 py-1 rounded">DOMAINS</span>
                       </div>
-                      <p className="text-xs text-muted-foreground italic">
-                        The engine will auto-scale domain discovery until required count of domains with valid emails is successfully extracted.
-                      </p>
                     </div>
                     <div className="space-y-4">
                       <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Deployment Mode</Label>
@@ -248,8 +324,8 @@ export default function NewCampaignPage() {
                              <span className="text-sm text-accent font-medium">Workers will spin up immediately across redundant API layers.</span>
                           </div>
                         </TabsContent>
-                        <TabsContent value="schedule" className="pt-4 space-y-4">
-                          <Button variant="outline" className="w-full h-12 flex justify-start text-muted-foreground bg-secondary/30 border-white/10 hover:bg-secondary/50">
+                        <TabsContent value="schedule" className="pt-4">
+                           <Button variant="outline" className="w-full h-12 flex justify-start text-muted-foreground bg-secondary/30 border-white/10 hover:bg-secondary/50">
                             <CalendarIcon className="h-5 w-5 mr-3" /> Select Target Launch Window
                           </Button>
                         </TabsContent>
