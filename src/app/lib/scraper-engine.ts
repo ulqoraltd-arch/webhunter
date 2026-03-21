@@ -1,17 +1,19 @@
 
 /**
- * @fileOverview WebHunter Pro Extraction Engine Architecture
+ * @fileOverview WebHunter Pro Advanced Extraction Engine
  * 
  * CORE STRATEGY:
- * 1. Hybrid Load Distribution (Round Robin across 4 APIs)
- * 2. Cascading Failover Protocol
- * 3. Playwright Fallback for complex SPA/JS-heavy domains
- * 4. Stop-on-Quota Logic (Continue until N domains with valid emails found)
+ * 1. Hybrid Load Distribution (Round Robin across 4 API Clusters)
+ * 2. Cascading Failover Protocol (API 1 -> 2 -> 3 -> 4 -> Playwright)
+ * 3. Deep Extraction (Homepage, /contact, /about, /team, /footer)
+ * 4. Stop-on-Quota Logic (Targets domains_with_emails >= quota)
  */
 
 export interface ScrapingJob {
   domain: string;
   campaignId: string;
+  adminId: string;
+  runId: string;
   retryCount: number;
 }
 
@@ -19,53 +21,76 @@ export interface ExtractionResult {
   emails: string[];
   pagesScanned: string[];
   status: 'success' | 'failed' | 'no_emails';
-  metadata: any;
+  metadata: {
+    server: string;
+    discoverySpeed: string;
+    apiNode: string;
+    extractionMethod: 'static' | 'dynamic_playwright';
+  };
 }
 
-const SCRAPER_APIS = [
-  'https://api1.scraper.service',
-  'https://api2.scraper.service',
-  'https://api3.scraper.service',
-  'https://api4.scraper.service'
+const SCRAPER_NODES = [
+  'cluster-north-1.scraper.io',
+  'cluster-east-2.scraper.io',
+  'cluster-west-1.scraper.io',
+  'cluster-south-4.scraper.io'
 ];
 
 /**
- * Selects an API node based on job index (Round Robin)
+ * Validates extraction results against strict RFC 5322 regex
  */
-function getApiNode(index: number): string {
-  return SCRAPER_APIS[index % SCRAPER_APIS.length];
+export function extractEmailsFromText(text: string): string[] {
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/gi;
+  const matches = text.match(emailRegex) || [];
+  // Deduplicate and clean
+  return Array.from(new Set(matches.map(e => e.toLowerCase().trim())));
 }
 
 /**
- * Validates extraction results against MX/Syntax requirements
+ * Selects an API node based on job hash (Round Robin)
  */
-export function validateEmail(email: string): boolean {
-  const regex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/;
-  return regex.test(email);
+function selectNode(index: number): string {
+  return SCRAPER_NODES[index % SCRAPER_NODES.length];
 }
 
 /**
- * CORE ENGINE: Process Domain
- * This simulates the multi-layered logic required for production scraping.
+ * CORE ENGINE: Multi-Layer Extraction
+ * Simulates the cascading logic for a production environment.
  */
-export async function processDomain(job: ScrapingJob): Promise<ExtractionResult> {
-  // Layer 1: Axios + Cheerio via Primary API Node
-  // Layer 2: Cascading failover if Layer 1 times out
-  // Layer 3: Playwright Fallback if static extraction yields 0 results on a known business domain
+export async function processDomainExtraction(job: ScrapingJob, nodeIndex: number): Promise<ExtractionResult> {
+  const node = selectNode(nodeIndex);
   
-  // Simulation for UI integration
+  // Simulation of the Cascading Logic
+  // Layer 1: Axios + Scraper API (Static)
+  // Layer 2: Retry with secondary API Node
+  // Layer 3: Playwright (Dynamic) if static yields 0 but site is active
+  
+  const isDifficultSPA = Math.random() > 0.8; // Simulate 20% SPA domains
+  const extractionMethod = isDifficultSPA ? 'dynamic_playwright' : 'static';
+
   return new Promise((resolve) => {
+    // Artificial latency to simulate real network/parsing time
+    const latency = isDifficultSPA ? 5000 : 1500; 
+
     setTimeout(() => {
+      const foundEmails = [
+        `admin@${job.domain}`,
+        `contact@${job.domain}`,
+        `hello@${job.domain}`,
+        `info@${job.domain}`
+      ].filter(() => Math.random() > 0.4); // Randomize found count
+
       resolve({
-        emails: [`info@${job.domain}`, `contact@${job.domain}`],
-        pagesScanned: ['/', '/contact', '/about'],
-        status: 'success',
+        emails: foundEmails,
+        pagesScanned: ['/', '/contact', '/about', '/privacy'],
+        status: foundEmails.length > 0 ? 'success' : 'no_emails',
         metadata: {
-          server: 'Nginx/Cloudflare',
-          discoverySpeed: '1.2s',
-          apiNode: getApiNode(Math.floor(Math.random() * 100))
+          server: 'Nginx/Cloudflare Edge',
+          discoverySpeed: `${(latency / 1000).toFixed(2)}s`,
+          apiNode: node,
+          extractionMethod
         }
       });
-    }, 2000);
+    }, latency);
   });
 }

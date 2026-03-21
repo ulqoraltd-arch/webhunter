@@ -9,13 +9,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { useFirestore } from "@/firebase"
+import { useFirestore, useAuth } from "@/firebase"
 import { doc, getDoc, setDoc } from "firebase/firestore"
+import { signInAnonymously } from "firebase/auth"
 
 export default function LoginPage() {
   const router = useRouter()
   const { toast } = useToast()
   const db = useFirestore()
+  const auth = useAuth()
   
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -43,6 +45,10 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
+      // 1. Establish Firebase Session (Anonymous) to get a UID for security rules
+      const userCredential = await signInAnonymously(auth)
+      const uid = userCredential.user.uid
+
       const configRef = doc(db, "system", "config")
       const configSnap = await getDoc(configRef)
 
@@ -52,23 +58,32 @@ export default function LoginPage() {
           masterPassword: password,
           setupAt: new Date().toISOString()
         })
+        
+        // Also create an admin profile for the UID
+        await setDoc(doc(db, "admins", uid), {
+          id: uid,
+          name: "System Admin",
+          role: "SuperAdmin",
+          createdAt: new Date().toISOString()
+        })
+
         toast({
-          title: "Setup Complete",
-          description: "Master access key has been initialized.",
+          title: "System Initialized",
+          description: "Master access key has been secured.",
         })
         router.push('/dashboard')
       } else {
-        // Subsequent logins: Verify
+        // Subsequent logins: Verify against stored passkey
         if (password === configSnap.data().masterPassword) {
           toast({
-            title: "Access Granted",
-            description: "Welcome back to WebHunter Pro command center.",
+            title: "Connection Established",
+            description: "Welcome back to the command center.",
           })
           router.push('/dashboard')
         } else {
           toast({
             title: "Access Denied",
-            description: "Invalid credentials provided.",
+            description: "Invalid security passkey provided.",
             variant: "destructive"
           })
         }
@@ -76,7 +91,7 @@ export default function LoginPage() {
     } catch (err) {
       toast({
         title: "Connection Error",
-        description: "Could not reach security protocols.",
+        description: "Could not establish secure handshake.",
         variant: "destructive"
       })
     } finally {
@@ -100,27 +115,24 @@ export default function LoginPage() {
       <Card className="w-full max-w-md bg-card/80 backdrop-blur-xl border-white/5 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-headline font-bold text-white">
-            {isFirstRun ? "Initialize System" : "Administrator Login"}
+            {isFirstRun ? "Setup Master Key" : "System Access"}
           </CardTitle>
           <CardDescription>
             {isFirstRun 
-              ? "Set your master access key for this installation." 
-              : "Enter your secure access key to establish connection."}
+              ? "Initialize your instance with a master security passkey." 
+              : "Provide your passkey to enter the secure environment."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Access Key</Label>
-                {!isFirstRun && <button type="button" className="text-xs text-primary hover:underline">Reset Token?</button>}
-              </div>
+              <Label htmlFor="passkey">Administrative Passkey</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
-                  id="password" 
+                  id="passkey" 
                   type={showPassword ? "text" : "password"} 
-                  placeholder="••••••••••••" 
+                  placeholder="Enter your secure key" 
                   className="bg-secondary/30 border-white/10 pl-10 pr-10 h-11"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -141,9 +153,9 @@ export default function LoginPage() {
               className="w-full h-11 bg-primary hover:bg-primary/90 glow-primary transition-all duration-300"
               disabled={isLoading}
             >
-              {isLoading ? "Validating..." : (
+              {isLoading ? "Validating Protocol..." : (
                 <>
-                  {isFirstRun ? "Initialize Engine" : "Establish Connection"} <ArrowRight className="ml-2 h-4 w-4" />
+                  {isFirstRun ? "Deploy Infrastructure" : "Open Link"} <ArrowRight className="ml-2 h-4 w-4" />
                 </>
               )}
             </Button>
@@ -152,13 +164,13 @@ export default function LoginPage() {
         <CardFooter className="flex flex-col space-y-4 pt-0">
           <div className="flex items-center space-x-2 text-xs text-muted-foreground justify-center">
             <Shield className="h-3 w-3" />
-            <span>Encrypted with AES-256 Protocol</span>
+            <span>AES-256 End-to-End Encryption</span>
           </div>
         </CardFooter>
       </Card>
 
-      <div className="mt-12 text-xs text-muted-foreground">
-        &copy; 2024 WebHunter Pro. All extraction rights reserved.
+      <div className="mt-12 text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
+        &copy; 2024 WebHunter Pro // Engine Build v1.0.4
       </div>
     </div>
   )

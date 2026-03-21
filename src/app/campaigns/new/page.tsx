@@ -19,13 +19,14 @@ import { useToast } from "@/hooks/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FuturisticLoader } from "@/components/ui/futuristic-loader"
 import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
-import { useFirestore } from "@/firebase"
-import { collection, addDoc, serverTimestamp } from "firebase/firestore"
+import { useFirestore, useUser } from "@/firebase"
+import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore"
 
 export default function NewCampaignPage() {
   const router = useRouter()
   const { toast } = useToast()
   const db = useFirestore()
+  const { user } = useUser()
   
   const [campaignName, setCampaignName] = useState("")
   const [query, setQuery] = useState("")
@@ -34,13 +35,11 @@ export default function NewCampaignPage() {
   const [isDeploying, setIsDeploying] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState<{shortTailKeywords: string[], longTailKeywords: string[]} | null>(null)
 
-  // Multi-select states
   const [selectedTlds, setSelectedTlds] = useState<string[]>([".com"])
   const [selectedCategories, setSelectedCategories] = useState<string[]>(["SaaS", "Technology"])
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["US"])
   const [targetQuota, setTargetQuota] = useState(2000)
 
-  // Search filters
   const [tldSearch, setTldSearch] = useState("")
   const [categorySearch, setCategorySearch] = useState("")
   const [countrySearch, setCountrySearch] = useState("")
@@ -56,46 +55,45 @@ export default function NewCampaignPage() {
 
   const handleAiSuggest = async () => {
     if (!query.trim() && keywords.length === 0) {
-      toast({
-        title: "Query required",
-        description: "Please enter a base keyword or query first.",
-        variant: "destructive"
-      })
+      toast({ title: "Query required", description: "Enter a base keyword for AI analysis.", variant: "destructive" })
       return
     }
-    
     setIsSuggesting(true)
     try {
       const result = await suggestKeywordsForCampaign({ query: query || keywords[0] })
       setAiSuggestions(result)
     } catch (err) {
-      toast({
-        title: "AI Failed",
-        description: "Failed to generate suggestions. Please try again.",
-        variant: "destructive"
-      })
+      toast({ title: "AI Failed", description: "Neural network timeout. Try again.", variant: "destructive" })
     } finally {
       setIsSuggesting(false)
     }
   }
 
   const addSuggestion = (keyword: string) => {
-    if (!keywords.includes(keyword)) {
-      setKeywords([...keywords, keyword])
-    }
+    if (!keywords.includes(keyword)) setKeywords([...keywords, keyword])
   }
 
   const handleDeploy = async () => {
+    if (!user) {
+      toast({ title: "Auth Error", description: "Session expired. Please re-login.", variant: "destructive" })
+      return
+    }
     if (!campaignName || keywords.length === 0) {
-      toast({ title: "Configuration incomplete", description: "Campaign name and keywords are required.", variant: "destructive" })
+      toast({ title: "Config Error", description: "Identity and Search Cluster required.", variant: "destructive" })
       return
     }
 
     setIsDeploying(true)
     
     try {
-      // Create campaign in Firestore
-      const docRef = await addDoc(collection(db, "campaigns"), {
+      const campaignId = `camp-${Date.now()}`
+      const runId = `run-${Date.now()}`
+
+      // 1. Create Campaign Document
+      const campaignRef = doc(db, "admins", user.uid, "campaigns", campaignId)
+      await setDoc(campaignRef, {
+        id: campaignId,
+        adminUserId: user.uid,
         name: campaignName,
         keywords,
         tldIds: selectedTlds,
@@ -107,45 +105,45 @@ export default function NewCampaignPage() {
         totalEmailsExtracted: 0,
         validEmailsCount: 0,
         flaggedEmailsCount: 0,
+        lastRunId: runId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
 
-      toast({ title: "Engine Deployed", description: "Campaign workers are spinning up." })
+      // 2. Create Initial Run Document
+      const runRef = doc(db, "admins", user.uid, "campaigns", campaignId, "runs", runId)
+      await setDoc(runRef, {
+        id: runId,
+        campaignId,
+        adminUserId: user.uid,
+        status: "Running",
+        startTime: serverTimestamp(),
+        progressTotalUrlsToProcess: targetQuota * 10, // Estimate 10:1 ratio
+        progressUrlsProcessed: 0,
+        progressUrlsRemaining: targetQuota * 10,
+        progressDomainsWithEmails: 0,
+        totalEmailsExtracted: 0,
+        validEmailsExtracted: 0,
+        flaggedEmailsExtracted: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+
+      toast({ title: "Engine Deployed", description: "Extraction clusters are initializing." })
       
-      // Simulate backend delay then redirect to progress
       setTimeout(() => {
-        router.push('/campaigns/progress')
-      }, 3000)
+        router.push(`/campaigns/progress?camp=${campaignId}&run=${runId}`)
+      }, 2500)
 
     } catch (err) {
       setIsDeploying(false)
-      toast({ title: "Deployment Failed", description: "Could not initialize extraction layers.", variant: "destructive" })
+      toast({ title: "Deployment Failed", description: "Cluster rejected connection.", variant: "destructive" })
     }
   }
 
-  const toggleTld = (tld: string) => {
-    setSelectedTlds(prev => prev.includes(tld) ? prev.filter(t => t !== tld) : [...prev, tld])
-  }
-
-  const toggleCategory = (cat: string) => {
-    setSelectedCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
-  }
-
-  const toggleCountry = (iso: string) => {
-    setSelectedCountries(prev => prev.includes(iso) ? prev.filter(c => c !== iso) : [...prev, iso])
-  }
-
-  const filteredTlds = TLDS.filter(t => t.toLowerCase().includes(tldSearch.toLowerCase()))
-  const filteredCategories = CATEGORIES.filter(c => c.toLowerCase().includes(categorySearch.toLowerCase()))
-  const filteredCountries = COUNTRIES.filter(c => 
-    c.name.toLowerCase().includes(countrySearch.toLowerCase()) || 
-    c.iso.toLowerCase().includes(countrySearch.toLowerCase())
-  )
-
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <FuturisticLoader isVisible={isDeploying} status={`Initializing extraction cluster for ${campaignName}...`} />
+      <FuturisticLoader isVisible={isDeploying} status={`Establishing link for ${campaignName}...`} />
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-y-auto">
         <Header />
@@ -153,17 +151,17 @@ export default function NewCampaignPage() {
         <main className="p-8 max-w-6xl mx-auto w-full">
           <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-headline font-bold text-white mb-2">Deploy New Campaign</h1>
-              <p className="text-muted-foreground text-lg">Configure your extraction engine with precision targeting and AI optimization.</p>
+              <h1 className="text-4xl font-headline font-bold text-white mb-2">Initialize Extraction</h1>
+              <p className="text-muted-foreground text-lg">Configure your multi-node scraping engine with deep AI targeting.</p>
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" className="h-11 border-white/10 bg-white/5">Save as Blueprint</Button>
+              <Button variant="outline" className="h-11 border-white/10 bg-white/5">Save Blueprint</Button>
               <Button 
                 className="h-11 bg-primary hover:bg-primary/90 px-8 font-bold glow-primary"
                 onClick={handleDeploy}
                 disabled={isDeploying}
               >
-                Deploy Engine
+                Launch Clusters
               </Button>
             </div>
           </div>
@@ -172,13 +170,13 @@ export default function NewCampaignPage() {
             <div className="lg:col-span-2 space-y-8">
               <Card className="bg-card border-white/5 shadow-2xl">
                 <CardHeader>
-                  <CardTitle className="font-headline text-xl">General Protocol</CardTitle>
+                  <CardTitle className="font-headline text-xl">Identity</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label>Campaign Descriptor</Label>
                     <Input 
-                      placeholder="e.g. Q4 Market Expansion" 
+                      placeholder="e.g. London Real Estate V2" 
                       className="bg-secondary/30 border-white/10 h-12"
                       value={campaignName}
                       onChange={(e) => setCampaignName(e.target.value)}
@@ -191,17 +189,16 @@ export default function NewCampaignPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center font-headline text-xl">
                     <Zap className="h-5 w-5 text-primary mr-3" />
-                    Targeting & Keywords
+                    Search Cluster
                   </CardTitle>
-                  <CardDescription>Define the search perimeter for domain discovery.</CardDescription>
+                  <CardDescription>Targeting logic for domain discovery.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-8">
                   <div className="space-y-4">
-                    <Label htmlFor="keywords" className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Search Cluster</Label>
-                    <div className="relative group">
+                    <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Keywords</Label>
+                    <div className="relative">
                       <Input 
-                        id="keywords"
-                        placeholder="Type keyword and press Enter" 
+                        placeholder="Enter seed keyword..." 
                         className="bg-secondary/30 border-white/10 pr-14 h-14 text-lg focus:ring-primary focus:border-primary/50 transition-all"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -219,45 +216,27 @@ export default function NewCampaignPage() {
                             <Sparkles className={`h-6 w-6 ${isSuggesting ? 'animate-spin' : ''}`} />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[500px] p-0 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border-white/10 bg-card/95 backdrop-blur-xl" align="end">
+                        <PopoverContent className="w-[500px] p-0 shadow-2xl border-white/10 bg-card/95 backdrop-blur-xl" align="end">
                           <div className="p-5 border-b border-white/5 bg-primary/5">
-                            <h4 className="font-headline font-bold flex items-center text-lg">
-                              <Sparkles className="h-5 w-5 mr-3 text-accent" />
-                              AI Semantic Analysis
-                            </h4>
-                            <p className="text-xs text-muted-foreground mt-1">Recommended keyword clusters for higher domain relevance.</p>
+                            <h4 className="font-headline font-bold flex items-center text-lg">AI Keyword Suggestions</h4>
                           </div>
-                          <ScrollArea className="h-[400px]">
+                          <ScrollArea className="h-[350px]">
                             <div className="p-6 space-y-6">
                               {aiSuggestions && (
                                 <>
                                   <div>
-                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Short Tail (Broad Reach)</p>
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase mb-3">Short Tail</p>
                                     <div className="flex flex-wrap gap-2">
                                       {aiSuggestions.shortTailKeywords.map(k => (
-                                        <Badge 
-                                          key={k} 
-                                          variant="secondary" 
-                                          className="cursor-pointer hover:bg-primary text-sm py-1.5 px-3 transition-colors"
-                                          onClick={() => addSuggestion(k)}
-                                        >
-                                          + {k}
-                                        </Badge>
+                                        <Badge key={k} variant="secondary" className="cursor-pointer hover:bg-primary" onClick={() => addSuggestion(k)}>+ {k}</Badge>
                                       ))}
                                     </div>
                                   </div>
                                   <div>
-                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Long Tail (High Intent)</p>
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase mb-3">Long Tail</p>
                                     <div className="flex flex-wrap gap-2">
                                       {aiSuggestions.longTailKeywords.map(k => (
-                                        <Badge 
-                                          key={k} 
-                                          variant="outline" 
-                                          className="cursor-pointer hover:border-accent hover:text-accent text-sm py-1.5 px-3 transition-colors"
-                                          onClick={() => addSuggestion(k)}
-                                        >
-                                          + {k}
-                                        </Badge>
+                                        <Badge key={k} variant="outline" className="cursor-pointer hover:border-accent" onClick={() => addSuggestion(k)}>+ {k}</Badge>
                                       ))}
                                     </div>
                                   </div>
@@ -266,22 +245,16 @@ export default function NewCampaignPage() {
                             </div>
                           </ScrollArea>
                           <div className="p-4 text-center border-t border-white/5 bg-white/5">
-                            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-white" onClick={() => setAiSuggestions(null)}>Dismiss recommendations</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setAiSuggestions(null)}>Dismiss</Button>
                           </div>
                         </PopoverContent>
                       </Popover>
                     </div>
                     <div className="flex flex-wrap gap-2.5 min-h-[48px] p-3 bg-secondary/10 rounded-xl border border-dashed border-white/5">
-                      {keywords.length === 0 && <span className="text-sm text-muted-foreground italic">No keywords added yet...</span>}
                       {keywords.map((k, i) => (
-                        <Badge key={i} className="bg-primary/20 text-primary border-primary/30 px-4 py-2 flex items-center text-sm font-semibold rounded-lg shadow-sm">
+                        <Badge key={i} className="bg-primary/20 text-primary border-primary/30 px-4 py-2 flex items-center">
                           {k}
-                          <span 
-                            className="ml-3 cursor-pointer text-muted-foreground hover:text-white transition-colors"
-                            onClick={() => setKeywords(keywords.filter((_, idx) => idx !== i))}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </span>
+                          <X className="ml-3 h-3.5 w-3.5 cursor-pointer" onClick={() => setKeywords(keywords.filter((_, idx) => idx !== i))} />
                         </Badge>
                       ))}
                     </div>
@@ -293,14 +266,13 @@ export default function NewCampaignPage() {
                 <CardHeader>
                   <CardTitle className="font-headline text-xl flex items-center">
                     <Target className="h-5 w-5 text-primary mr-3" />
-                    Engine Strategy
+                    Extraction Strategy
                   </CardTitle>
-                  <CardDescription>Configure volume quotas and execution schedules.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     <div className="space-y-4">
-                      <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Domain Quota (Valid Emails Only)</Label>
+                      <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Email Quota</Label>
                       <div className="relative">
                         <Input 
                           type="number" 
@@ -308,27 +280,16 @@ export default function NewCampaignPage() {
                           onChange={(e) => setTargetQuota(Number(e.target.value))}
                           className="bg-secondary/30 border-white/10 h-14 text-xl font-bold pl-4" 
                         />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-bold bg-white/5 px-2 py-1 rounded">DOMAINS</span>
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-bold">VALIDS</span>
                       </div>
                     </div>
                     <div className="space-y-4">
-                      <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Deployment Mode</Label>
+                      <Label className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Execution Mode</Label>
                       <Tabs defaultValue="instant" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 bg-secondary/50 p-1 h-12">
-                          <TabsTrigger value="instant" className="h-10">Instant Run</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-2 h-12 bg-secondary/50">
+                          <TabsTrigger value="instant" className="h-10">Instant</TabsTrigger>
                           <TabsTrigger value="schedule" className="h-10">Scheduled</TabsTrigger>
                         </TabsList>
-                        <TabsContent value="instant" className="pt-4">
-                          <div className="flex items-center p-4 bg-accent/5 rounded-xl border border-accent/10">
-                             <Activity className="h-5 w-5 mr-3 text-accent animate-pulse" />
-                             <span className="text-sm text-accent font-medium">Workers will spin up immediately across redundant API layers.</span>
-                          </div>
-                        </TabsContent>
-                        <TabsContent value="schedule" className="pt-4">
-                           <Button variant="outline" className="w-full h-12 flex justify-start text-muted-foreground bg-secondary/30 border-white/10 hover:bg-secondary/50">
-                            <CalendarIcon className="h-5 w-5 mr-3" /> Select Target Launch Window
-                          </Button>
-                        </TabsContent>
                       </Tabs>
                     </div>
                   </div>
@@ -340,32 +301,17 @@ export default function NewCampaignPage() {
               <Card className="bg-card border-white/5 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-lg font-headline flex items-center justify-between">
-                    <div className="flex items-center">
-                      <Globe className="h-5 w-5 mr-3 text-accent" /> TLDs
-                    </div>
-                    <Badge variant="secondary" className="bg-accent/10 text-accent">{selectedTlds.length}</Badge>
+                    TLDs <Badge variant="secondary">{selectedTlds.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Search TLDs..." 
-                      className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" 
-                      value={tldSearch}
-                      onChange={(e) => setTldSearch(e.target.value)}
-                    />
-                  </div>
+                  <Input placeholder="Filter TLDs..." className="h-10 bg-secondary/30" value={tldSearch} onChange={(e) => setTldSearch(e.target.value)} />
                   <ScrollArea className="h-[180px] pr-4">
                     <div className="space-y-2">
-                      {filteredTlds.map(tld => (
-                        <div key={tld} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                          <Checkbox 
-                            id={`tld-${tld}`} 
-                            checked={selectedTlds.includes(tld)}
-                            onCheckedChange={() => toggleTld(tld)}
-                          />
-                          <label htmlFor={`tld-${tld}`} className="text-sm font-medium leading-none cursor-pointer flex-1">{tld}</label>
+                      {TLDS.filter(t => t.includes(tldSearch)).map(tld => (
+                        <div key={tld} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5">
+                          <Checkbox checked={selectedTlds.includes(tld)} onCheckedChange={() => setSelectedTlds(prev => prev.includes(tld) ? prev.filter(t => t !== tld) : [...prev, tld])} />
+                          <span className="text-sm">{tld}</span>
                         </div>
                       ))}
                     </div>
@@ -376,32 +322,17 @@ export default function NewCampaignPage() {
               <Card className="bg-card border-white/5 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-lg font-headline flex items-center justify-between">
-                    <div className="flex items-center">
-                      <Tag className="h-5 w-5 mr-3 text-primary" /> Categories
-                    </div>
-                    <Badge variant="secondary" className="bg-primary/10 text-primary">{selectedCategories.length}</Badge>
+                    Categories <Badge variant="secondary">{selectedCategories.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Search categories..." 
-                      className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" 
-                      value={categorySearch}
-                      onChange={(e) => setCategorySearch(e.target.value)}
-                    />
-                  </div>
+                  <Input placeholder="Filter Categories..." className="h-10 bg-secondary/30" value={categorySearch} onChange={(e) => setCategorySearch(e.target.value)} />
                   <ScrollArea className="h-[180px] pr-4">
                     <div className="space-y-2">
-                      {filteredCategories.map(cat => (
-                        <div key={cat} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                          <Checkbox 
-                            id={`cat-${cat}`} 
-                            checked={selectedCategories.includes(cat)}
-                            onCheckedChange={() => toggleCategory(cat)}
-                          />
-                          <label htmlFor={`cat-${cat}`} className="text-sm font-medium leading-none cursor-pointer flex-1">{cat}</label>
+                      {CATEGORIES.filter(c => c.toLowerCase().includes(categorySearch.toLowerCase())).map(cat => (
+                        <div key={cat} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5">
+                          <Checkbox checked={selectedCategories.includes(cat)} onCheckedChange={() => setSelectedCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])} />
+                          <span className="text-sm">{cat}</span>
                         </div>
                       ))}
                     </div>
@@ -412,34 +343,17 @@ export default function NewCampaignPage() {
               <Card className="bg-card border-white/5 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-lg font-headline flex items-center justify-between">
-                    <div className="flex items-center">
-                      <Flag className="h-5 w-5 mr-3 text-accent" /> Regions
-                    </div>
-                    <Badge variant="secondary" className="bg-accent/10 text-accent">{selectedCountries.length}</Badge>
+                    Regions <Badge variant="secondary">{selectedCountries.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Search regions..." 
-                      className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" 
-                      value={countrySearch}
-                      onChange={(e) => setCountrySearch(e.target.value)}
-                    />
-                  </div>
+                  <Input placeholder="Filter Regions..." className="h-10 bg-secondary/30" value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} />
                   <ScrollArea className="h-[180px] pr-4">
                     <div className="space-y-2">
-                      {filteredCountries.map(country => (
-                        <div key={country.iso} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                          <Checkbox 
-                            id={`country-${country.iso}`} 
-                            checked={selectedCountries.includes(country.iso)}
-                            onCheckedChange={() => toggleCountry(country.iso)}
-                          />
-                          <label htmlFor={`country-${country.iso}`} className="text-sm font-medium leading-none cursor-pointer flex-1">
-                            {country.name} ({country.iso})
-                          </label>
+                      {COUNTRIES.filter(c => c.name.toLowerCase().includes(countrySearch.toLowerCase())).map(country => (
+                        <div key={country.iso} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5">
+                          <Checkbox checked={selectedCountries.includes(country.iso)} onCheckedChange={() => setSelectedCountries(prev => prev.includes(country.iso) ? prev.filter(c => c !== country.iso) : [...prev, country.iso])} />
+                          <span className="text-sm">{country.name} ({country.iso})</span>
                         </div>
                       ))}
                     </div>
