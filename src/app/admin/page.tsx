@@ -1,8 +1,9 @@
 "use client"
 
+import { useState } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Settings, Users, Shield, Database, Plus, Edit2, Trash2, CheckCircle2 } from "lucide-react"
+import { Settings, Users, Shield, Database, Plus, Edit2, Trash2, CheckCircle2, Search, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,8 +11,55 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { useToast } from "@/hooks/use-toast"
+import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
 
 export default function AdminPage() {
+  const { toast } = useToast()
+  const [tlds, setTlds] = useState<string[]>(TLDS)
+  const [categories, setCategories] = useState<string[]>(CATEGORIES)
+  const [countries, setCountries] = useState(COUNTRIES)
+
+  const [newTld, setNewTld] = useState("")
+  const [newCategory, setNewCategory] = useState("")
+  const [newCountry, setNewCountry] = useState({ name: "", iso: "" })
+
+  const handleAddTld = () => {
+    const formatted = newTld.startsWith(".") ? newTld : `.${newTld}`
+    if (!newTld) return
+    if (tlds.includes(formatted)) {
+      toast({ title: "Duplicate entry", description: `TLD ${formatted} already exists.`, variant: "destructive" })
+      return
+    }
+    setTlds([formatted, ...tlds])
+    setNewTld("")
+    toast({ title: "Success", description: `Added TLD: ${formatted}` })
+  }
+
+  const handleAddCategory = () => {
+    if (!newCategory) return
+    if (categories.some(c => c.toLowerCase() === newCategory.toLowerCase())) {
+      toast({ title: "Duplicate entry", description: `Category ${newCategory} already exists.`, variant: "destructive" })
+      return
+    }
+    setCategories([newCategory, ...categories])
+    setNewCategory("")
+    toast({ title: "Success", description: `Added Category: ${newCategory}` })
+  }
+
+  const handleAddCountry = () => {
+    if (!newCountry.name || !newCountry.iso) return
+    if (countries.some(c => c.iso.toUpperCase() === newCountry.iso.toUpperCase())) {
+      toast({ title: "Duplicate entry", description: `Country ISO ${newCountry.iso} already exists.`, variant: "destructive" })
+      return
+    }
+    setCountries([{ name: newCountry.name, iso: newCountry.iso.toUpperCase() }, ...countries])
+    setNewCountry({ name: "", iso: "" })
+    toast({ title: "Success", description: `Added Country: ${newCountry.name}` })
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
@@ -33,7 +81,7 @@ export default function AdminPage() {
               </TabsTrigger>
               <TabsTrigger value="protocols" className="flex items-center px-6">
                 <Shield className="h-4 w-4 mr-2" /> Protocols & Permissions
-              </Shield>
+              </TabsTrigger>
               <TabsTrigger value="metadata" className="flex items-center px-6">
                 <Database className="h-4 w-4 mr-2" /> Metadata Management
               </TabsTrigger>
@@ -41,7 +89,7 @@ export default function AdminPage() {
 
             <TabsContent value="personnel" className="space-y-6">
               <Card className="bg-card border-white/5">
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <CardTitle className="font-headline">System Administrators</CardTitle>
                     <CardDescription>Manage accounts with backend access.</CardDescription>
@@ -134,30 +182,125 @@ export default function AdminPage() {
 
             <TabsContent value="metadata" className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {['TLDs', 'Categories', 'Countries'].map((type) => (
-                  <Card key={type} className="bg-card border-white/5">
-                    <CardHeader className="pb-4">
-                      <CardTitle className="text-lg font-headline flex items-center justify-between">
-                        {type}
-                        <Button variant="outline" size="icon" className="h-7 w-7"><Plus className="h-4 w-4" /></Button>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Input placeholder={`Add new ${type.slice(0, -1)}...`} className="h-8 bg-secondary/30 text-xs" />
-                        <Button size="sm" className="h-8 text-[10px]">Add</Button>
-                      </div>
-                      <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                          <div key={i} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
-                             <span className="text-white font-medium">Value_{i}</span>
-                             <button className="text-destructive hover:text-destructive/80"><Trash2 className="h-3 w-3" /></button>
+                {/* TLDs Management */}
+                <Card className="bg-card border-white/5">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg font-headline flex items-center justify-between">
+                      TLDs
+                      <Badge variant="secondary" className="bg-white/5">{tlds.length}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Input 
+                        placeholder=".com" 
+                        className="h-8 bg-secondary/30 text-xs" 
+                        value={newTld}
+                        onChange={(e) => setNewTld(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddTld()}
+                      />
+                      <Button size="sm" className="h-8 text-[10px]" onClick={handleAddTld}>Add</Button>
+                    </div>
+                    <ScrollArea className="h-72 pr-2">
+                      <div className="space-y-2">
+                        {tlds.map(tld => (
+                          <div key={tld} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                             <span className="text-white font-medium">{tld}</span>
+                             <button 
+                               className="text-muted-foreground hover:text-destructive transition-colors"
+                               onClick={() => setTlds(tlds.filter(t => t !== tld))}
+                             >
+                               <Trash2 className="h-3 w-3" />
+                             </button>
                           </div>
                         ))}
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+
+                {/* Categories Management */}
+                <Card className="bg-card border-white/5">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg font-headline flex items-center justify-between">
+                      Categories
+                      <Badge variant="secondary" className="bg-white/5">{categories.length}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Input 
+                        placeholder="Technology" 
+                        className="h-8 bg-secondary/30 text-xs" 
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+                      />
+                      <Button size="sm" className="h-8 text-[10px]" onClick={handleAddCategory}>Add</Button>
+                    </div>
+                    <ScrollArea className="h-72 pr-2">
+                      <div className="space-y-2">
+                        {categories.map(cat => (
+                          <div key={cat} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                             <span className="text-white font-medium">{cat}</span>
+                             <button 
+                               className="text-muted-foreground hover:text-destructive transition-colors"
+                               onClick={() => setCategories(categories.filter(c => c !== cat))}
+                             >
+                               <Trash2 className="h-3 w-3" />
+                             </button>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+
+                {/* Countries Management */}
+                <Card className="bg-card border-white/5">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg font-headline flex items-center justify-between">
+                      Countries
+                      <Badge variant="secondary" className="bg-white/5">{countries.length}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input 
+                        placeholder="Name" 
+                        className="h-8 bg-secondary/30 text-xs" 
+                        value={newCountry.name}
+                        onChange={(e) => setNewCountry({ ...newCountry, name: e.target.value })}
+                      />
+                      <Input 
+                        placeholder="ISO" 
+                        className="h-8 bg-secondary/30 text-xs" 
+                        value={newCountry.iso}
+                        maxLength={2}
+                        onChange={(e) => setNewCountry({ ...newCountry, iso: e.target.value })}
+                      />
+                    </div>
+                    <Button size="sm" className="h-8 text-[10px] w-full" onClick={handleAddCountry}>Add Country</Button>
+                    <ScrollArea className="h-64 pr-2">
+                      <div className="space-y-2">
+                        {countries.map(country => (
+                          <div key={country.iso} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                             <div className="flex items-center gap-2">
+                               <Badge variant="outline" className="text-[10px] h-4 px-1">{country.iso}</Badge>
+                               <span className="text-white font-medium">{country.name}</span>
+                             </div>
+                             <button 
+                               className="text-muted-foreground hover:text-destructive transition-colors"
+                               onClick={() => setCountries(countries.filter(c => c.iso !== country.iso))}
+                             >
+                               <Trash2 className="h-3 w-3" />
+                             </button>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
           </Tabs>

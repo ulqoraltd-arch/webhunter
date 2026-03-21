@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Sparkles, Plus, Globe, Tag, Flag, Search, Calendar as CalendarIcon, Zap, Target, Activity } from "lucide-react"
+import { Sparkles, Plus, Globe, Tag, Flag, Search, Calendar as CalendarIcon, Zap, Target, Activity, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { suggestKeywordsForCampaign } from "@/ai/flows/ai-keyword-suggestion"
 import { useToast } from "@/hooks/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
 
 export default function NewCampaignPage() {
   const { toast } = useToast()
@@ -23,9 +24,21 @@ export default function NewCampaignPage() {
   const [isSuggesting, setIsSuggesting] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState<{shortTailKeywords: string[], longTailKeywords: string[]} | null>(null)
 
+  // Multi-select states
+  const [selectedTlds, setSelectedTlds] = useState<string[]>([".com"])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(["SaaS", "Technology"])
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(["US"])
+
+  // Search filters
+  const [tldSearch, setTldSearch] = useState("")
+  const [categorySearch, setCategorySearch] = useState("")
+  const [countrySearch, setCountrySearch] = useState("")
+
   const handleAddKeyword = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && query.trim()) {
-      setKeywords([...keywords, query.trim()])
+      if (!keywords.includes(query.trim())) {
+        setKeywords([...keywords, query.trim()])
+      }
       setQuery("")
     }
   }
@@ -61,6 +74,25 @@ export default function NewCampaignPage() {
     }
   }
 
+  const toggleTld = (tld: string) => {
+    setSelectedTlds(prev => prev.includes(tld) ? prev.filter(t => t !== tld) : [...prev, tld])
+  }
+
+  const toggleCategory = (cat: string) => {
+    setSelectedCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
+  }
+
+  const toggleCountry = (iso: string) => {
+    setSelectedCountries(prev => prev.includes(iso) ? prev.filter(c => c !== iso) : [...prev, iso])
+  }
+
+  const filteredTlds = TLDS.filter(t => t.toLowerCase().includes(tldSearch.toLowerCase()))
+  const filteredCategories = CATEGORIES.filter(c => c.toLowerCase().includes(categorySearch.toLowerCase()))
+  const filteredCountries = COUNTRIES.filter(c => 
+    c.name.toLowerCase().includes(countrySearch.toLowerCase()) || 
+    c.iso.toLowerCase().includes(countrySearch.toLowerCase())
+  )
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
@@ -68,7 +100,7 @@ export default function NewCampaignPage() {
         <Header />
         
         <main className="p-8 max-w-6xl mx-auto w-full">
-          <div className="mb-8 flex items-end justify-between">
+          <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
               <h1 className="text-4xl font-headline font-bold text-white mb-2">Deploy New Campaign</h1>
               <p className="text-muted-foreground text-lg">Configure your extraction engine with precision targeting and AI optimization.</p>
@@ -121,42 +153,44 @@ export default function NewCampaignPage() {
                             </h4>
                             <p className="text-xs text-muted-foreground mt-1">Recommended keyword clusters for higher domain relevance.</p>
                           </div>
-                          <div className="p-6 space-y-6 max-h-[450px] overflow-y-auto">
-                            {aiSuggestions && (
-                              <>
-                                <div>
-                                  <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Short Tail (Broad Reach)</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {aiSuggestions.shortTailKeywords.map(k => (
-                                      <Badge 
-                                        key={k} 
-                                        variant="secondary" 
-                                        className="cursor-pointer hover:bg-primary text-sm py-1.5 px-3 transition-colors"
-                                        onClick={() => addSuggestion(k)}
-                                      >
-                                        + {k}
-                                      </Badge>
-                                    ))}
+                          <ScrollArea className="h-[400px]">
+                            <div className="p-6 space-y-6">
+                              {aiSuggestions && (
+                                <>
+                                  <div>
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Short Tail (Broad Reach)</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {aiSuggestions.shortTailKeywords.map(k => (
+                                        <Badge 
+                                          key={k} 
+                                          variant="secondary" 
+                                          className="cursor-pointer hover:bg-primary text-sm py-1.5 px-3 transition-colors"
+                                          onClick={() => addSuggestion(k)}
+                                        >
+                                          + {k}
+                                        </Badge>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
-                                <div>
-                                  <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Long Tail (High Intent)</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {aiSuggestions.longTailKeywords.map(k => (
-                                      <Badge 
-                                        key={k} 
-                                        variant="outline" 
-                                        className="cursor-pointer hover:border-accent hover:text-accent text-sm py-1.5 px-3 transition-colors"
-                                        onClick={() => addSuggestion(k)}
-                                      >
-                                        + {k}
-                                      </Badge>
-                                    ))}
+                                  <div>
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Long Tail (High Intent)</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {aiSuggestions.longTailKeywords.map(k => (
+                                        <Badge 
+                                          key={k} 
+                                          variant="outline" 
+                                          className="cursor-pointer hover:border-accent hover:text-accent text-sm py-1.5 px-3 transition-colors"
+                                          onClick={() => addSuggestion(k)}
+                                        >
+                                          + {k}
+                                        </Badge>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
+                                </>
+                              )}
+                            </div>
+                          </ScrollArea>
                           <div className="p-4 text-center border-t border-white/5 bg-white/5">
                             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-white" onClick={() => setAiSuggestions(null)}>Dismiss recommendations</Button>
                           </div>
@@ -172,7 +206,7 @@ export default function NewCampaignPage() {
                             className="ml-3 cursor-pointer text-muted-foreground hover:text-white transition-colors"
                             onClick={() => setKeywords(keywords.filter((_, idx) => idx !== i))}
                           >
-                            ×
+                            <X className="h-3.5 w-3.5" />
                           </span>
                         </Badge>
                       ))}
@@ -198,7 +232,7 @@ export default function NewCampaignPage() {
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-bold bg-white/5 px-2 py-1 rounded">DOMAINS</span>
                       </div>
                       <p className="text-xs text-muted-foreground italic">
-                        The engine will auto-scale domain discovery (est. 15,000+ domains) until {2000} domains with valid emails are successfully extracted.
+                        The engine will auto-scale domain discovery until required count of domains with valid emails is successfully extracted.
                       </p>
                     </div>
                     <div className="space-y-4">
@@ -211,7 +245,7 @@ export default function NewCampaignPage() {
                         <TabsContent value="instant" className="pt-4">
                           <div className="flex items-center p-4 bg-accent/5 rounded-xl border border-accent/10">
                              <Activity className="h-5 w-5 mr-3 text-accent animate-pulse" />
-                             <span className="text-sm text-accent font-medium">Workers will spin up immediately across 4 redundant API layers.</span>
+                             <span className="text-sm text-accent font-medium">Workers will spin up immediately across redundant API layers.</span>
                           </div>
                         </TabsContent>
                         <TabsContent value="schedule" className="pt-4 space-y-4">
@@ -227,28 +261,35 @@ export default function NewCampaignPage() {
             </div>
 
             <div className="space-y-8">
-              <Card className="bg-card border-white/5 shadow-lg h-full">
+              <Card className="bg-card border-white/5 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-lg font-headline flex items-center justify-between">
                     <div className="flex items-center">
-                      <Globe className="h-5 w-5 mr-3 text-accent" /> TLD Restrictions
+                      <Globe className="h-5 w-5 mr-3 text-accent" /> TLDs
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-accent hover:bg-accent/10">
-                      <Plus className="h-5 w-5" />
-                    </Button>
+                    <Badge variant="secondary" className="bg-accent/10 text-accent">{selectedTlds.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Filter TLDs..." className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" />
+                    <Input 
+                      placeholder="Search TLDs..." 
+                      className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" 
+                      value={tldSearch}
+                      onChange={(e) => setTldSearch(e.target.value)}
+                    />
                   </div>
-                  <ScrollArea className="h-[120px] pr-4">
-                    <div className="space-y-3">
-                      {['.com', '.net', '.org', '.io', '.ai', '.tech', '.co', '.dev', '.app', '.me'].map(tld => (
+                  <ScrollArea className="h-[180px] pr-4">
+                    <div className="space-y-2">
+                      {filteredTlds.map(tld => (
                         <div key={tld} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                          <Checkbox id={tld} />
-                          <label htmlFor={tld} className="text-sm font-medium leading-none cursor-pointer flex-1">{tld}</label>
+                          <Checkbox 
+                            id={`tld-${tld}`} 
+                            checked={selectedTlds.includes(tld)}
+                            onCheckedChange={() => toggleTld(tld)}
+                          />
+                          <label htmlFor={`tld-${tld}`} className="text-sm font-medium leading-none cursor-pointer flex-1">{tld}</label>
                         </div>
                       ))}
                     </div>
@@ -256,28 +297,35 @@ export default function NewCampaignPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-card border-white/5 shadow-lg h-full">
+              <Card className="bg-card border-white/5 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-lg font-headline flex items-center justify-between">
                     <div className="flex items-center">
-                      <Tag className="h-5 w-5 mr-3 text-primary" /> Content Categories
+                      <Tag className="h-5 w-5 mr-3 text-primary" /> Categories
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10">
-                      <Plus className="h-5 w-5" />
-                    </Button>
+                    <Badge variant="secondary" className="bg-primary/10 text-primary">{selectedCategories.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Filter categories..." className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" />
+                    <Input 
+                      placeholder="Search categories..." 
+                      className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" 
+                      value={categorySearch}
+                      onChange={(e) => setCategorySearch(e.target.value)}
+                    />
                   </div>
-                  <ScrollArea className="h-[120px] pr-4">
-                    <div className="space-y-3">
-                      {['Technology', 'SaaS', 'Digital Agency', 'E-commerce', 'Fintech', 'Real Estate', 'Healthcare', 'Education'].map(cat => (
+                  <ScrollArea className="h-[180px] pr-4">
+                    <div className="space-y-2">
+                      {filteredCategories.map(cat => (
                         <div key={cat} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                          <Checkbox id={cat} />
-                          <label htmlFor={cat} className="text-sm font-medium leading-none cursor-pointer flex-1">{cat}</label>
+                          <Checkbox 
+                            id={`cat-${cat}`} 
+                            checked={selectedCategories.includes(cat)}
+                            onCheckedChange={() => toggleCategory(cat)}
+                          />
+                          <label htmlFor={`cat-${cat}`} className="text-sm font-medium leading-none cursor-pointer flex-1">{cat}</label>
                         </div>
                       ))}
                     </div>
@@ -285,28 +333,37 @@ export default function NewCampaignPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-card border-white/5 shadow-lg h-full">
+              <Card className="bg-card border-white/5 shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-lg font-headline flex items-center justify-between">
                     <div className="flex items-center">
-                      <Flag className="h-5 w-5 mr-3 text-accent" /> Regional Filtering
+                      <Flag className="h-5 w-5 mr-3 text-accent" /> Regions
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-accent hover:bg-accent/10">
-                      <Plus className="h-5 w-5" />
-                    </Button>
+                    <Badge variant="secondary" className="bg-accent/10 text-accent">{selectedCountries.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Search regions..." className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" />
+                    <Input 
+                      placeholder="Search regions..." 
+                      className="h-10 bg-secondary/30 text-sm pl-10 border-white/5" 
+                      value={countrySearch}
+                      onChange={(e) => setCountrySearch(e.target.value)}
+                    />
                   </div>
-                  <ScrollArea className="h-[120px] pr-4">
-                    <div className="space-y-3">
-                      {['United States (US)', 'United Kingdom (UK)', 'Germany (DE)', 'Canada (CA)', 'Australia (AU)', 'France (FR)', 'Netherlands (NL)'].map(country => (
-                        <div key={country} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
-                          <Checkbox id={country} />
-                          <label htmlFor={country} className="text-sm font-medium leading-none cursor-pointer flex-1">{country}</label>
+                  <ScrollArea className="h-[180px] pr-4">
+                    <div className="space-y-2">
+                      {filteredCountries.map(country => (
+                        <div key={country.iso} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
+                          <Checkbox 
+                            id={`country-${country.iso}`} 
+                            checked={selectedCountries.includes(country.iso)}
+                            onCheckedChange={() => toggleCountry(country.iso)}
+                          />
+                          <label htmlFor={`country-${country.iso}`} className="text-sm font-medium leading-none cursor-pointer flex-1">
+                            {country.name} ({country.iso})
+                          </label>
                         </div>
                       ))}
                     </div>
