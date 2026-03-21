@@ -1,4 +1,3 @@
-
 /**
  * @fileOverview WebHunter Pro Advanced Extraction Engine (Production Build)
  * 
@@ -69,27 +68,27 @@ export function validateEmail(email: string): ExtractedEmail {
 }
 
 /**
- * Selects an API node based on job hash (Round Robin)
- */
-function selectNode(index: number): string {
-  return SCRAPER_NODES[index % SCRAPER_NODES.length];
-}
-
-/**
  * CORE ENGINE: Multi-Layer Extraction + Validation
  * Implements the cascading failover strategy for 2000+ domain yield.
  */
 export async function processDomainExtraction(job: ScrapingJob, nodeIndex: number): Promise<ExtractionResult> {
-  const node = selectNode(nodeIndex);
+  const node = SCRAPER_NODES[nodeIndex];
   
   // 25% of sites require dynamic rendering (Playwright Fallback)
   const isDifficultSite = Math.random() > 0.75; 
   const extractionMethod = isDifficultSite ? 'dynamic_playwright' : 'static';
 
+  // SIMULATE API NODE RATE LIMIT PROTECTION
+  // In a real scenario, this would check headers. Here we simulate a 2% chance
+  // of a node signaling a temporary rate limit to trigger BullMQ's backoff.
+  if (Math.random() < 0.02) {
+    throw new Error(`RATE_LIMIT: Node ${node} is heavily loaded.`);
+  }
+
   return new Promise((resolve) => {
-    // Static extraction is fast (1.2s), Dynamic is slow (4.5s)
-    const baseLatency = isDifficultSite ? 4500 : 1200;
-    const latencyJitter = Math.random() * 1000;
+    // Static extraction is fast (0.8s), Dynamic is slow (3.5s)
+    const baseLatency = isDifficultSite ? 3500 : 800;
+    const latencyJitter = Math.random() * 500;
 
     setTimeout(() => {
       // Simulate real-world scraping patterns
