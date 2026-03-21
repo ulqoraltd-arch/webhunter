@@ -1,7 +1,9 @@
+
 import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from "@/firebase";
+import { SchedulerMonitor } from "@/components/SchedulerMonitor";
 
 export const metadata: Metadata = {
   title: 'WebHunter Pro | Advanced Scraping SaaS',
@@ -22,6 +24,7 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased bg-background text-foreground">
         <FirebaseClientProvider>
+          <SchedulerMonitor />
           {children}
           <Toaster />
         </FirebaseClientProvider>

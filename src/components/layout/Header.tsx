@@ -1,19 +1,34 @@
 
 "use client"
 
-import { Bell, Search, Activity, Cpu, Sparkles, CheckCircle, AlertCircle, FileText } from "lucide-react"
+import { Bell, Search, Cpu, Sparkles, CheckCircle, AlertCircle, FileText, Loader2 } from "lucide-react"
 import { 
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
-import { notifications } from "@/app/lib/mock-data"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase"
+import { collection, query, orderBy, limit, doc, updateDoc } from "firebase/firestore"
+import { formatDistanceToNow } from "date-fns"
 
 export function Header() {
-  const unreadCount = notifications.filter(n => n.unread).length
+  const { user } = useUser()
+  const db = useFirestore()
+
+  const notificationsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return query(
+      collection(db, "admins", user.uid, "notifications"),
+      orderBy("createdAt", "desc"),
+      limit(10)
+    )
+  }, [db, user])
+
+  const { data: dbNotifications, isLoading } = useCollection(notificationsQuery)
+  const unreadCount = dbNotifications?.filter(n => !n.isRead).length || 0
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -23,6 +38,12 @@ export function Header() {
       case 'error': return <AlertCircle className="h-4 w-4 text-destructive" />
       default: return <Bell className="h-4 w-4 text-muted-foreground" />
     }
+  }
+
+  const markAsRead = (id: string) => {
+    if (!user || !db) return
+    const ref = doc(db, "admins", user.uid, "notifications", id)
+    updateDoc(ref, { isRead: true })
   }
 
   return (
@@ -68,19 +89,24 @@ export function Header() {
             </div>
             <ScrollArea className="max-h-[450px]">
               <div className="flex flex-col">
-                {notifications.map((n) => (
+                {isLoading ? (
+                  <div className="p-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                ) : dbNotifications?.map((n) => (
                   <div 
                     key={n.id} 
-                    className={`p-5 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-all cursor-pointer group ${n.unread ? 'bg-primary/[0.03]' : ''}`}
+                    onClick={() => markAsRead(n.id)}
+                    className={`p-5 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-all cursor-pointer group ${!n.isRead ? 'bg-primary/[0.03]' : ''}`}
                   >
                     <div className="flex gap-4">
                       <div className={`mt-1 p-2 rounded-lg bg-white/5 group-hover:bg-white/10 transition-colors`}>
-                        {getNotificationIcon(n.type || '')}
+                        {getNotificationIcon(n.eventType || '')}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1">
-                          <h4 className={`text-sm font-bold truncate ${n.unread ? 'text-white' : 'text-muted-foreground'}`}>{n.title}</h4>
-                          <span className="text-[9px] font-black text-muted-foreground uppercase shrink-0 ml-2">{n.time}</span>
+                          <h4 className={`text-sm font-bold truncate ${!n.isRead ? 'text-white' : 'text-muted-foreground'}`}>{n.title}</h4>
+                          <span className="text-[9px] font-black text-muted-foreground uppercase shrink-0 ml-2">
+                            {n.createdAt ? formatDistanceToNow(n.createdAt.toDate()) + ' ago' : 'Recent'}
+                          </span>
                         </div>
                         <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
                           {n.description}
@@ -89,6 +115,11 @@ export function Header() {
                     </div>
                   </div>
                 ))}
+                {(!dbNotifications || dbNotifications.length === 0) && !isLoading && (
+                  <div className="p-8 text-center text-muted-foreground italic text-xs">
+                    No recent telemetry recorded.
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </PopoverContent>

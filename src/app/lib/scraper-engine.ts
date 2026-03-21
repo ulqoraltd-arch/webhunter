@@ -49,7 +49,8 @@ const SCRAPER_NODES = [
  * and simulates MX record verification.
  */
 export function validateEmail(email: string): ExtractedEmail {
-  const isDifficultSite = Math.random() > 0.85; // 15% rate of bad/flagged emails
+  // Realistic failure rate simulation (15% bad leads)
+  const isDifficultSite = Math.random() > 0.85; 
   
   if (isDifficultSite) {
     const statuses: ExtractedEmail['validationStatus'][] = ['invalid_mx', 'flagged_disposable', 'flagged_catchall'];
@@ -81,17 +82,20 @@ function selectNode(index: number): string {
 export async function processDomainExtraction(job: ScrapingJob, nodeIndex: number): Promise<ExtractionResult> {
   const node = selectNode(nodeIndex);
   
+  // 25% of sites require dynamic rendering (Playwright Fallback)
   const isDifficultSite = Math.random() > 0.75; 
   const extractionMethod = isDifficultSite ? 'dynamic_playwright' : 'static';
 
   return new Promise((resolve) => {
+    // Static extraction is fast (1.2s), Dynamic is slow (4.5s)
     const baseLatency = isDifficultSite ? 4500 : 1200;
     const latencyJitter = Math.random() * 1000;
 
     setTimeout(() => {
-      const domains = ['support', 'media', 'sales', 'office', 'hr', 'contact', 'admin'];
-      const rawEmails = domains
-        .filter(() => Math.random() > 0.6)
+      // Simulate real-world scraping patterns
+      const prefixes = ['support', 'media', 'sales', 'office', 'hr', 'contact', 'admin', 'info', 'hello'];
+      const rawEmails = prefixes
+        .filter(() => Math.random() > 0.7) // 30% yield per prefix
         .map(prefix => `${prefix}@${job.domain}`);
 
       const validatedEmails = rawEmails.map(validateEmail);
