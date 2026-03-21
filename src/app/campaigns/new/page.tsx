@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect } from "react"
@@ -19,9 +18,10 @@ import { useToast } from "@/hooks/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FuturisticLoader } from "@/components/ui/futuristic-loader"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase"
-import { doc, setDoc, serverTimestamp, collection } from "firebase/firestore"
+import { doc, setDoc, serverTimestamp, collection, writeBatch, getDocs } from "firebase/firestore"
 import { format } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
+import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
 
 export default function NewCampaignPage() {
   const router = useRouter()
@@ -64,6 +64,43 @@ export default function NewCampaignPage() {
     }
   }, [user, isUserLoading, router])
 
+  // Seed the registry if Firestore is empty
+  useEffect(() => {
+    const seedRegistry = async () => {
+      if (!db || !user) return
+      
+      const tldSnap = await getDocs(collection(db, "tlds"))
+      if (tldSnap.empty) {
+        const batch = writeBatch(db)
+        TLDS.forEach(t => {
+          const id = t.replace('.', '')
+          batch.set(doc(db, "tlds", id), { name: t, createdAt: serverTimestamp() })
+        })
+        await batch.commit()
+      }
+
+      const catSnap = await getDocs(collection(db, "categories"))
+      if (catSnap.empty) {
+        const batch = writeBatch(db)
+        CATEGORIES.forEach(c => {
+          const id = c.toLowerCase().replace(/\s/g, '-')
+          batch.set(doc(db, "categories", id), { name: c, createdAt: serverTimestamp() })
+        })
+        await batch.commit()
+      }
+
+      const countrySnap = await getDocs(collection(db, "countries"))
+      if (countrySnap.empty) {
+        const batch = writeBatch(db)
+        COUNTRIES.forEach(c => {
+          batch.set(doc(db, "countries", c.iso), { name: c.name, isoCode: c.iso, createdAt: serverTimestamp() })
+        })
+        await batch.commit()
+      }
+    }
+    seedRegistry()
+  }, [db, user])
+
   const handleAddKeyword = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && query.trim()) {
       if (!keywords.includes(query.trim())) {
@@ -94,16 +131,20 @@ export default function NewCampaignPage() {
   }
 
   const handleQuickAdd = async (type: 'tld' | 'category' | 'country') => {
+    if (!user) return
     const id = Date.now().toString()
     if (type === 'tld' && newEntry.tld) {
       const formatted = newEntry.tld.startsWith('.') ? newEntry.tld : `.${newEntry.tld}`
-      await setDoc(doc(db, "tlds", id), { name: formatted, createdAt: serverTimestamp() })
+      const customId = formatted.replace('.', '')
+      await setDoc(doc(db, "tlds", customId), { name: formatted, createdAt: serverTimestamp(), adminUserId: user.uid })
       setNewEntry({ ...newEntry, tld: "" })
     } else if (type === 'category' && newEntry.category) {
-      await setDoc(doc(db, "categories", id), { name: newEntry.category, createdAt: serverTimestamp() })
+      const customId = newEntry.category.toLowerCase().replace(/\s/g, '-')
+      await setDoc(doc(db, "categories", customId), { name: newEntry.category, createdAt: serverTimestamp(), adminUserId: user.uid })
       setNewEntry({ ...newEntry, category: "" })
     } else if (type === 'country' && newEntry.countryName && newEntry.countryIso) {
-      await setDoc(doc(db, "countries", id), { name: newEntry.countryName, isoCode: newEntry.countryIso.toUpperCase(), createdAt: serverTimestamp() })
+      const customId = newEntry.countryIso.toUpperCase()
+      await setDoc(doc(db, "countries", customId), { name: newEntry.countryName, isoCode: customId, createdAt: serverTimestamp(), adminUserId: user.uid })
       setNewEntry({ ...newEntry, countryName: "", countryIso: "" })
     }
     toast({ title: "Registry Updated", description: "Master list expanded successfully." })
@@ -132,7 +173,7 @@ export default function NewCampaignPage() {
         countryIds: selectedCountries,
         targetEmailCount: targetQuota,
         mode,
-        scheduledDateTime: mode === 'scheduled' ? scheduledDate?.toISOString() : null,
+        scheduledDateTime: mode === 'scheduled' ? (scheduledDate ? scheduledDate.toISOString() : null) : null,
         status: mode === 'instant' ? "Running" : "Scheduled",
         totalDomainsFetched: 0,
         totalEmailsExtracted: 0,
@@ -304,7 +345,7 @@ export default function NewCampaignPage() {
                           onChange={(e) => setTargetQuota(Number(e.target.value))}
                           className="bg-secondary/30 border-white/10 h-14 text-xl font-bold pl-4" 
                         />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-black tracking-widest">ENTITIES</span>
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-black tracking-widest">DOMAINS</span>
                       </div>
                     </div>
                     <div className="space-y-4">
