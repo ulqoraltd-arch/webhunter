@@ -1,6 +1,7 @@
+
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
 import { Settings, Users, Shield, Database, Plus, Edit2, Trash2, CheckCircle2, Search, X } from "lucide-react"
@@ -14,13 +15,22 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
+import { useFirestore, useCollection, useMemoFirebase } from "@/firebase"
+import { collection, doc, deleteDoc, serverTimestamp, setDoc } from "firebase/firestore"
 import { COUNTRIES, TLDS, CATEGORIES } from "@/app/lib/constants"
 
 export default function AdminPage() {
   const { toast } = useToast()
-  const [tlds, setTlds] = useState<string[]>(TLDS)
-  const [categories, setCategories] = useState<string[]>(CATEGORIES)
-  const [countries, setCountries] = useState(COUNTRIES)
+  const db = useFirestore()
+
+  // Real-time Firestore Collections
+  const tldsQuery = useMemoFirebase(() => collection(db, "tlds"), [db])
+  const categoriesQuery = useMemoFirebase(() => collection(db, "categories"), [db])
+  const countriesQuery = useMemoFirebase(() => collection(db, "countries"), [db])
+
+  const { data: dbTlds } = useCollection(tldsQuery)
+  const { data: dbCategories } = useCollection(categoriesQuery)
+  const { data: dbCountries } = useCollection(countriesQuery)
 
   const [newTld, setNewTld] = useState("")
   const [newCategory, setNewCategory] = useState("")
@@ -29,35 +39,59 @@ export default function AdminPage() {
   const handleAddTld = () => {
     const formatted = newTld.startsWith(".") ? newTld : `.${newTld}`
     if (!newTld) return
-    if (tlds.includes(formatted)) {
+    if (dbTlds?.some(t => t.name === formatted)) {
       toast({ title: "Duplicate entry", description: `TLD ${formatted} already exists.`, variant: "destructive" })
       return
     }
-    setTlds([formatted, ...tlds])
+    const id = formatted.replace('.', '')
+    setDoc(doc(db, "tlds", id), {
+      name: formatted,
+      description: "Added via Admin Panel",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
     setNewTld("")
     toast({ title: "Success", description: `Added TLD: ${formatted}` })
   }
 
   const handleAddCategory = () => {
     if (!newCategory) return
-    if (categories.some(c => c.toLowerCase() === newCategory.toLowerCase())) {
+    if (dbCategories?.some(c => c.name.toLowerCase() === newCategory.toLowerCase())) {
       toast({ title: "Duplicate entry", description: `Category ${newCategory} already exists.`, variant: "destructive" })
       return
     }
-    setCategories([newCategory, ...categories])
+    const id = newCategory.toLowerCase().replace(/\s/g, '-')
+    setDoc(doc(db, "categories", id), {
+      name: newCategory,
+      description: "Added via Admin Panel",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
     setNewCategory("")
     toast({ title: "Success", description: `Added Category: ${newCategory}` })
   }
 
   const handleAddCountry = () => {
     if (!newCountry.name || !newCountry.iso) return
-    if (countries.some(c => c.iso.toUpperCase() === newCountry.iso.toUpperCase())) {
+    if (dbCountries?.some(c => c.isoCode.toUpperCase() === newCountry.iso.toUpperCase())) {
       toast({ title: "Duplicate entry", description: `Country ISO ${newCountry.iso} already exists.`, variant: "destructive" })
       return
     }
-    setCountries([{ name: newCountry.name, iso: newCountry.iso.toUpperCase() }, ...countries])
+    const id = newCountry.iso.toUpperCase()
+    setDoc(doc(db, "countries", id), {
+      name: newCountry.name,
+      isoCode: newCountry.iso.toUpperCase(),
+      description: "Added via Admin Panel",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
     setNewCountry({ name: "", iso: "" })
     toast({ title: "Success", description: `Added Country: ${newCountry.name}` })
+  }
+
+  const handleDelete = (col: string, id: string) => {
+    deleteDoc(doc(db, col, id))
+    toast({ title: "Deleted", description: "Entry removed from master registry." })
   }
 
   return (
@@ -74,7 +108,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <Tabs defaultValue="personnel" className="w-full">
+          <Tabs defaultValue="metadata" className="w-full">
             <TabsList className="bg-secondary/50 p-1 mb-8">
               <TabsTrigger value="personnel" className="flex items-center px-6">
                 <Users className="h-4 w-4 mr-2" /> Personnel
@@ -110,9 +144,7 @@ export default function AdminPage() {
                     </TableHeader>
                     <TableBody>
                       {[
-                        { name: 'John Doe', email: 'john@webhunter.pro', role: 'Super Admin', last: 'Now' },
-                        { name: 'Sarah Miller', email: 'sarah@webhunter.pro', role: 'Analyst', last: '2h ago' },
-                        { name: 'Michael Chen', email: 'm.chen@webhunter.pro', role: 'Campaign Mgr', last: '1 day ago' },
+                        { name: 'System Admin', email: 'admin@webhunter.pro', role: 'Super Admin', last: 'Now' }
                       ].map((admin, i) => (
                         <TableRow key={i} className="border-white/5">
                           <TableCell>
@@ -187,7 +219,7 @@ export default function AdminPage() {
                   <CardHeader className="pb-4">
                     <CardTitle className="text-lg font-headline flex items-center justify-between">
                       TLDs
-                      <Badge variant="secondary" className="bg-white/5">{tlds.length}</Badge>
+                      <Badge variant="secondary" className="bg-white/5">{dbTlds?.length || 0}</Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -203,12 +235,12 @@ export default function AdminPage() {
                     </div>
                     <ScrollArea className="h-72 pr-2">
                       <div className="space-y-2">
-                        {tlds.map(tld => (
-                          <div key={tld} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
-                             <span className="text-white font-medium">{tld}</span>
+                        {dbTlds?.map(tld => (
+                          <div key={tld.id} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                             <span className="text-white font-medium">{tld.name}</span>
                              <button 
                                className="text-muted-foreground hover:text-destructive transition-colors"
-                               onClick={() => setTlds(tlds.filter(t => t !== tld))}
+                               onClick={() => handleDelete("tlds", tld.id)}
                              >
                                <Trash2 className="h-3 w-3" />
                              </button>
@@ -224,7 +256,7 @@ export default function AdminPage() {
                   <CardHeader className="pb-4">
                     <CardTitle className="text-lg font-headline flex items-center justify-between">
                       Categories
-                      <Badge variant="secondary" className="bg-white/5">{categories.length}</Badge>
+                      <Badge variant="secondary" className="bg-white/5">{dbCategories?.length || 0}</Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -240,12 +272,12 @@ export default function AdminPage() {
                     </div>
                     <ScrollArea className="h-72 pr-2">
                       <div className="space-y-2">
-                        {categories.map(cat => (
-                          <div key={cat} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
-                             <span className="text-white font-medium">{cat}</span>
+                        {dbCategories?.map(cat => (
+                          <div key={cat.id} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                             <span className="text-white font-medium">{cat.name}</span>
                              <button 
                                className="text-muted-foreground hover:text-destructive transition-colors"
-                               onClick={() => setCategories(categories.filter(c => c !== cat))}
+                               onClick={() => handleDelete("categories", cat.id)}
                              >
                                <Trash2 className="h-3 w-3" />
                              </button>
@@ -261,7 +293,7 @@ export default function AdminPage() {
                   <CardHeader className="pb-4">
                     <CardTitle className="text-lg font-headline flex items-center justify-between">
                       Countries
-                      <Badge variant="secondary" className="bg-white/5">{countries.length}</Badge>
+                      <Badge variant="secondary" className="bg-white/5">{dbCountries?.length || 0}</Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -283,15 +315,15 @@ export default function AdminPage() {
                     <Button size="sm" className="h-8 text-[10px] w-full" onClick={handleAddCountry}>Add Country</Button>
                     <ScrollArea className="h-64 pr-2">
                       <div className="space-y-2">
-                        {countries.map(country => (
-                          <div key={country.iso} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                        {dbCountries?.map(country => (
+                          <div key={country.id} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
                              <div className="flex items-center gap-2">
-                               <Badge variant="outline" className="text-[10px] h-4 px-1">{country.iso}</Badge>
+                               <Badge variant="outline" className="text-[10px] h-4 px-1">{country.isoCode}</Badge>
                                <span className="text-white font-medium">{country.name}</span>
                              </div>
                              <button 
                                className="text-muted-foreground hover:text-destructive transition-colors"
-                               onClick={() => setCountries(countries.filter(c => c.iso !== country.iso))}
+                               onClick={() => handleDelete("countries", country.id)}
                              >
                                <Trash2 className="h-3 w-3" />
                              </button>

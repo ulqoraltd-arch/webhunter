@@ -1,46 +1,86 @@
+
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Shield, ArrowRight, Mail, Lock } from "lucide-react"
+import { Zap, Shield, ArrowRight, Mail, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
+import { useFirestore } from "@/firebase"
+import { doc, getDoc, setDoc } from "firebase/firestore"
 
 export default function LoginPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const db = useFirestore()
+  
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isFirstRun, setIsFirstRun] = useState(false)
 
-  const handleLogin = (e: React.FormEvent) => {
+  useEffect(() => {
+    const checkSetup = async () => {
+      const configRef = doc(db, "system", "config")
+      const configSnap = await getDoc(configRef)
+      if (!configSnap.exists()) {
+        setIsFirstRun(true)
+      }
+    }
+    checkSetup()
+  }, [db])
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    
-    // Default password check
-    if (password === 'p@$$worD1122') {
-      setTimeout(() => {
-        router.push('/dashboard')
-        toast({
-          title: "Access Granted",
-          description: "Welcome back to WebHunter Pro command center.",
+
+    try {
+      const configRef = doc(db, "system", "config")
+      const configSnap = await getDoc(configRef)
+
+      if (!configSnap.exists()) {
+        // First run: Save the password as the master password
+        await setDoc(configRef, {
+          masterPassword: password,
+          setupAt: new Date().toISOString()
         })
-      }, 1000)
-    } else {
-      setIsLoading(false)
+        toast({
+          title: "Setup Complete",
+          description: "Master access key has been initialized.",
+        })
+        router.push('/dashboard')
+      } else {
+        // Subsequent logins: Verify
+        if (password === configSnap.data().masterPassword) {
+          toast({
+            title: "Access Granted",
+            description: "Welcome back to WebHunter Pro command center.",
+          })
+          router.push('/dashboard')
+        } else {
+          toast({
+            title: "Access Denied",
+            description: "Invalid credentials provided.",
+            variant: "destructive"
+          })
+        }
+      }
+    } catch (err) {
       toast({
-        title: "Access Denied",
-        description: "Invalid credentials provided.",
+        title: "Connection Error",
+        description: "Could not reach security protocols.",
         variant: "destructive"
       })
+    } finally {
+      setIsLoading(false)
     }
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Orbs */}
       <div className="absolute top-1/4 -left-20 w-96 h-96 bg-primary/10 rounded-full blur-[120px]" />
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-accent/10 rounded-full blur-[120px]" />
 
@@ -54,8 +94,14 @@ export default function LoginPage() {
 
       <Card className="w-full max-w-md bg-card/80 backdrop-blur-xl border-white/5 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-headline font-bold text-white">Administrator Login</CardTitle>
-          <CardDescription>Enter your credentials to access the secure dashboard.</CardDescription>
+          <CardTitle className="text-2xl font-headline font-bold text-white">
+            {isFirstRun ? "Initialize System" : "Administrator Login"}
+          </CardTitle>
+          <CardDescription>
+            {isFirstRun 
+              ? "Set your master access key for this installation." 
+              : "Enter your credentials to access the secure dashboard."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-6">
@@ -76,19 +122,26 @@ export default function LoginPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Access Key</Label>
-                <button type="button" className="text-xs text-primary hover:underline">Reset Token?</button>
+                {!isFirstRun && <button type="button" className="text-xs text-primary hover:underline">Reset Token?</button>}
               </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
                   id="password" 
-                  type="password" 
+                  type={showPassword ? "text" : "password"} 
                   placeholder="••••••••••••" 
-                  className="bg-secondary/30 border-white/10 pl-10 h-11"
+                  className="bg-secondary/30 border-white/10 pl-10 pr-10 h-11"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
             <Button 
@@ -98,7 +151,7 @@ export default function LoginPage() {
             >
               {isLoading ? "Validating..." : (
                 <>
-                  Establish Connection <ArrowRight className="ml-2 h-4 w-4" />
+                  {isFirstRun ? "Initialize Engine" : "Establish Connection"} <ArrowRight className="ml-2 h-4 w-4" />
                 </>
               )}
             </Button>
