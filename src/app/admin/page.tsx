@@ -1,10 +1,10 @@
 
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Users, Shield, Database, Plus, Edit2, Trash2, Key, Search, X } from "lucide-react"
+import { Users, Shield, Database, Plus, Edit2, Trash2, Key, Search, X, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -15,13 +15,31 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase"
-import { collection, doc, deleteDoc, serverTimestamp, setDoc } from "firebase/firestore"
+import { useFirestore, useCollection, useMemoFirebase, useUser, useDoc } from "@/firebase"
+import { collection, doc, deleteDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useRouter } from "next/navigation"
 
 export default function AdminPage() {
   const { toast } = useToast()
   const db = useFirestore()
+  const router = useRouter()
+  const { user, isUserLoading } = useUser()
+
+  // Verify SuperAdmin status
+  const profileRef = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return doc(db, "admins", user.uid)
+  }, [db, user])
+  const { data: profile } = useDoc(profileRef)
+
+  useEffect(() => {
+    if (!isUserLoading && profile && profile.role !== 'SuperAdmin') {
+      toast({ title: "Access Restricted", description: "This module requires SuperAdmin clearance.", variant: "destructive" })
+      router.push('/dashboard')
+    }
+  }, [profile, isUserLoading, router, toast])
 
   // Real-time Firestore Collections
   const tldsQuery = useMemoFirebase(() => collection(db, "tlds"), [db])
@@ -34,37 +52,45 @@ export default function AdminPage() {
   const { data: dbCountries } = useCollection(countriesQuery)
   const { data: dbAdmins } = useCollection(adminsQuery)
 
+  // Protocols Config
+  const protocolRef = useMemoFirebase(() => doc(db, "system", "protocols"), [db])
+  const { data: protocols } = useDoc(protocolRef)
+
   const [newTld, setNewTld] = useState("")
   const [newCategory, setNewCategory] = useState("")
   const [newCountry, setNewCountry] = useState({ name: "", iso: "" })
   
   const [isAdminDialogOpen, setIsAdminDialogOpen] = useState(false)
-  const [newAdmin, setNewAdmin] = useState({ name: "", passkey: "" })
+  const [newAdmin, setNewAdmin] = useState({ name: "", passkey: "", role: "Analyst" })
 
   const handleAddAdmin = async () => {
     if (!newAdmin.name || !newAdmin.passkey) return
-    const adminId = newAdmin.name.toLowerCase().replace(/\s/g, '-')
+    const adminId = `admin-${Date.now()}`
     
     await setDoc(doc(db, "admins", adminId), {
+      id: adminId,
       name: newAdmin.name,
       passkey: newAdmin.passkey,
-      role: "System Admin",
+      role: newAdmin.role,
+      adminUserId: user?.uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     })
 
-    toast({ title: "Personnel Added", description: `${newAdmin.name} has been granted access.` })
+    toast({ title: "Personnel Added", description: `${newAdmin.name} has been registered as ${newAdmin.role}.` })
     setIsAdminDialogOpen(false)
-    setNewAdmin({ name: "", passkey: "" })
+    setNewAdmin({ name: "", passkey: "", role: "Analyst" })
+  }
+
+  const handleProtocolToggle = async (key: string, value: boolean) => {
+    if (!protocolRef) return
+    await setDoc(protocolRef, { [key]: value }, { merge: true })
+    toast({ title: "Protocol Updated", description: "System permissions synchronized." })
   }
 
   const handleAddTld = () => {
     const formatted = newTld.startsWith(".") ? newTld : `.${newTld}`
     if (!newTld) return
-    if (dbTlds?.some(t => t.name === formatted)) {
-      toast({ title: "Duplicate entry", description: `TLD ${formatted} already exists.`, variant: "destructive" })
-      return
-    }
     const id = formatted.replace('.', '')
     setDoc(doc(db, "tlds", id), {
       name: formatted,
@@ -78,10 +104,6 @@ export default function AdminPage() {
 
   const handleAddCategory = () => {
     if (!newCategory) return
-    if (dbCategories?.some(c => c.name.toLowerCase() === newCategory.toLowerCase())) {
-      toast({ title: "Duplicate entry", description: `Category ${newCategory} already exists.`, variant: "destructive" })
-      return
-    }
     const id = newCategory.toLowerCase().replace(/\s/g, '-')
     setDoc(doc(db, "categories", id), {
       name: newCategory,
@@ -95,10 +117,6 @@ export default function AdminPage() {
 
   const handleAddCountry = () => {
     if (!newCountry.name || !newCountry.iso) return
-    if (dbCountries?.some(c => c.isoCode.toUpperCase() === newCountry.iso.toUpperCase())) {
-      toast({ title: "Duplicate entry", description: `Country ISO ${newCountry.iso} already exists.`, variant: "destructive" })
-      return
-    }
     const id = newCountry.iso.toUpperCase()
     setDoc(doc(db, "countries", id), {
       name: newCountry.name,
@@ -115,6 +133,8 @@ export default function AdminPage() {
     deleteDoc(doc(db, col, id))
     toast({ title: "Deleted", description: "Entry removed from master registry." })
   }
+
+  if (profile?.role !== 'SuperAdmin') return null
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -147,11 +167,11 @@ export default function AdminPage() {
               <Card className="bg-card border-white/5">
                 <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <CardTitle className="font-headline">System Administrators</CardTitle>
-                    <CardDescription>Manage accounts with secure passkey access.</CardDescription>
+                    <CardTitle className="font-headline">Authorized Personnel</CardTitle>
+                    <CardDescription>Manage administrative accounts and access tiers.</CardDescription>
                   </div>
                   <Button className="bg-primary hover:bg-primary/90" onClick={() => setIsAdminDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" /> Create New Admin
+                    <Plus className="h-4 w-4 mr-2" /> Register New Personnel
                   </Button>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -159,17 +179,17 @@ export default function AdminPage() {
                     <TableHeader>
                       <TableRow className="border-white/5">
                         <TableHead className="font-headline">Identity</TableHead>
-                        <TableHead className="font-headline">Access Level</TableHead>
+                        <TableHead className="font-headline">Access Tier</TableHead>
                         <TableHead className="font-headline text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dbAdmins?.map((admin, i) => (
-                        <TableRow key={i} className="border-white/5">
+                      {dbAdmins?.map((admin) => (
+                        <TableRow key={admin.id} className="border-white/5">
                           <TableCell>
                             <div className="flex items-center space-x-3">
-                              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
-                                {admin.name.charAt(0)}
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${admin.role === 'SuperAdmin' ? 'bg-primary/20 text-primary' : 'bg-accent/20 text-accent'}`}>
+                                {admin.name?.charAt(0) || 'U'}
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-white">{admin.name}</p>
@@ -180,32 +200,26 @@ export default function AdminPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="border-primary/30 text-primary">{admin.role}</Badge>
+                            <Badge variant="outline" className={admin.role === 'SuperAdmin' ? "border-primary/30 text-primary" : "border-accent/30 text-accent"}>
+                              {admin.role}
+                            </Badge>
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end space-x-2">
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-white">
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDelete("admins", admin.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              {admin.id !== user?.uid && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDelete("admins", admin.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
                       ))}
-                      {(!dbAdmins || dbAdmins.length === 0) && (
-                        <TableRow>
-                          <TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">
-                            No additional personnel registered.
-                          </TableCell>
-                        </TableRow>
-                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -215,30 +229,29 @@ export default function AdminPage() {
             <TabsContent value="protocols" className="space-y-6">
               <Card className="bg-card border-white/5">
                 <CardHeader>
-                  <CardTitle className="font-headline">Access Protocols</CardTitle>
-                  <CardDescription>Define granular permissions for administrative tiers.</CardDescription>
+                  <CardTitle className="font-headline">Access Protocols (Analyst Tier)</CardTitle>
+                  <CardDescription>Define granular restrictions for non-superadmin users.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-8">
-                  <div className="space-y-6">
-                    <h4 className="text-sm font-bold text-white uppercase tracking-widest border-b border-white/5 pb-2">Analyst Tier</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                      {[
-                        { label: 'View Dashboard', desc: 'Read-only access to main stats.' },
-                        { label: 'Access Results', desc: 'View and browse extracted domains.' },
-                        { label: 'Run Validation', desc: 'Trigger MX record checks.' },
-                        { label: 'Export Data', desc: 'Download CSV datasets.' },
-                        { label: 'Campaign Creation', desc: 'Configure and start new runs.', disabled: true },
-                        { label: 'Admin Access', desc: 'Modify system users.', disabled: true },
-                      ].map((p, i) => (
-                        <div key={i} className="flex items-start justify-between space-x-4">
-                          <div className="space-y-0.5">
-                            <Label className="text-sm font-medium">{p.label}</Label>
-                            <p className="text-[10px] text-muted-foreground">{p.desc}</p>
-                          </div>
-                          <Switch defaultChecked={!p.disabled} disabled={p.disabled} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {[
+                      { key: 'canViewDashboard', label: 'View Dashboard', desc: 'Read-only access to main telemetry.' },
+                      { key: 'canAccessResults', label: 'Access Repository', desc: 'View discovered domains.' },
+                      { key: 'canRunValidation', label: 'Run Validation', desc: 'Trigger MX record checks.' },
+                      { key: 'canExportData', label: 'Export Datasets', desc: 'Generate CSV binary streams.' },
+                      { key: 'canCreateCampaigns', label: 'Campaign Creation', desc: 'Deploy new extraction clusters.' },
+                    ].map((p) => (
+                      <div key={p.key} className="flex items-start justify-between space-x-4">
+                        <div className="space-y-0.5">
+                          <Label className="text-sm font-medium">{p.label}</Label>
+                          <p className="text-[10px] text-muted-foreground">{p.desc}</p>
                         </div>
-                      ))}
-                    </div>
+                        <Switch 
+                          checked={protocols?.[p.key] ?? true} 
+                          onCheckedChange={(v) => handleProtocolToggle(p.key, v)}
+                        />
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -256,13 +269,7 @@ export default function AdminPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center space-x-2">
-                      <Input 
-                        placeholder=".com" 
-                        className="h-8 bg-secondary/30 text-xs" 
-                        value={newTld}
-                        onChange={(e) => setNewTld(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddTld()}
-                      />
+                      <Input placeholder=".com" className="h-8 bg-secondary/30 text-xs" value={newTld} onChange={(e) => setNewTld(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddTld()} />
                       <Button size="sm" className="h-8 text-[10px]" onClick={handleAddTld}>Add</Button>
                     </div>
                     <ScrollArea className="h-72 pr-2">
@@ -270,12 +277,7 @@ export default function AdminPage() {
                         {dbTlds?.map(tld => (
                           <div key={tld.id} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
                              <span className="text-white font-medium">{tld.name}</span>
-                             <button 
-                               className="text-muted-foreground hover:text-destructive transition-colors"
-                               onClick={() => handleDelete("tlds", tld.id)}
-                             >
-                               <Trash2 className="h-3 w-3" />
-                             </button>
+                             <button className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete("tlds", tld.id)}><Trash2 className="h-3 w-3" /></button>
                           </div>
                         ))}
                       </div>
@@ -293,13 +295,7 @@ export default function AdminPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center space-x-2">
-                      <Input 
-                        placeholder="Technology" 
-                        className="h-8 bg-secondary/30 text-xs" 
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-                      />
+                      <Input placeholder="Technology" className="h-8 bg-secondary/30 text-xs" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()} />
                       <Button size="sm" className="h-8 text-[10px]" onClick={handleAddCategory}>Add</Button>
                     </div>
                     <ScrollArea className="h-72 pr-2">
@@ -307,12 +303,7 @@ export default function AdminPage() {
                         {dbCategories?.map(cat => (
                           <div key={cat.id} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
                              <span className="text-white font-medium">{cat.name}</span>
-                             <button 
-                               className="text-muted-foreground hover:text-destructive transition-colors"
-                               onClick={() => handleDelete("categories", cat.id)}
-                             >
-                               <Trash2 className="h-3 w-3" />
-                             </button>
+                             <button className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete("categories", cat.id)}><Trash2 className="h-3 w-3" /></button>
                           </div>
                         ))}
                       </div>
@@ -330,19 +321,8 @@ export default function AdminPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-2">
-                      <Input 
-                        placeholder="Name" 
-                        className="h-8 bg-secondary/30 text-xs" 
-                        value={newCountry.name}
-                        onChange={(e) => setNewCountry({ ...newCountry, name: e.target.value })}
-                      />
-                      <Input 
-                        placeholder="ISO" 
-                        className="h-8 bg-secondary/30 text-xs" 
-                        value={newCountry.iso}
-                        maxLength={2}
-                        onChange={(e) => setNewCountry({ ...newCountry, iso: e.target.value })}
-                      />
+                      <Input placeholder="Name" className="h-8 bg-secondary/30 text-xs" value={newCountry.name} onChange={(e) => setNewCountry({ ...newCountry, name: e.target.value })} />
+                      <Input placeholder="ISO" className="h-8 bg-secondary/30 text-xs" value={newCountry.iso} maxLength={2} onChange={(e) => setNewCountry({ ...newCountry, iso: e.target.value })} />
                     </div>
                     <Button size="sm" className="h-8 text-[10px] w-full" onClick={handleAddCountry}>Add Country</Button>
                     <ScrollArea className="h-64 pr-2">
@@ -353,12 +333,7 @@ export default function AdminPage() {
                                <Badge variant="outline" className="text-[10px] h-4 px-1">{country.isoCode}</Badge>
                                <span className="text-white font-medium">{country.name}</span>
                              </div>
-                             <button 
-                               className="text-muted-foreground hover:text-destructive transition-colors"
-                               onClick={() => handleDelete("countries", country.id)}
-                             >
-                               <Trash2 className="h-3 w-3" />
-                             </button>
+                             <button className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete("countries", country.id)}><Trash2 className="h-3 w-3" /></button>
                           </div>
                         ))}
                       </div>
@@ -373,8 +348,8 @@ export default function AdminPage() {
         <Dialog open={isAdminDialogOpen} onOpenChange={setIsAdminDialogOpen}>
           <DialogContent className="bg-card border-white/10 text-white">
             <DialogHeader>
-              <DialogTitle className="font-headline">Create Administrative Identity</DialogTitle>
-              <DialogDescription>Assign a name and secure passkey for this account.</DialogDescription>
+              <DialogTitle className="font-headline">Register Intelligence Personnel</DialogTitle>
+              <DialogDescription>Assign an identity, role, and passkey for system access.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
@@ -387,7 +362,19 @@ export default function AdminPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Access Passkey</Label>
+                <Label>Access Tier</Label>
+                <Select value={newAdmin.role} onValueChange={(v) => setNewAdmin({...newAdmin, role: v})}>
+                  <SelectTrigger className="bg-secondary/30 border-white/10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SuperAdmin">SuperAdmin (Full Control)</SelectItem>
+                    <SelectItem value="Analyst">Analyst (Restricted)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Initial Passkey</Label>
                 <div className="relative">
                   <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input 
@@ -402,7 +389,7 @@ export default function AdminPage() {
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setIsAdminDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleAddAdmin}>Initialize Account</Button>
+              <Button onClick={handleAddAdmin}>Initialize Identity</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
