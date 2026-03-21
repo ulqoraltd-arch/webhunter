@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Shield, ArrowRight, Lock, Eye, EyeOff, Terminal, Activity, Globe, Cpu } from "lucide-react"
+import { Zap, Shield, ArrowRight, Lock, Eye, EyeOff, Terminal, Activity, Globe, Cpu, Network, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,7 +13,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
 import { signInAnonymously } from "firebase/auth"
 import { FuturisticLoader } from "@/components/ui/futuristic-loader"
 
-const MatrixBackground = () => {
+const AdvancedMatrixBackground = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -22,27 +22,34 @@ const MatrixBackground = () => {
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
-    canvas.width = window.innerWidth
-    canvas.height = window.innerHeight
+    const resize = () => {
+      canvas.width = window.innerWidth
+      canvas.height = window.innerHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
 
-    const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>[]{}/?*&^%$#@!"
-    const fontSize = 14
+    const characters = "0123456789ABCDEFｦｱｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ"
+    const fontSize = 16
     const columns = canvas.width / fontSize
     const drops: number[] = []
 
     for (let i = 0; i < columns; i++) {
-      drops[i] = 1
+      drops[i] = Math.random() * -100
     }
 
     const draw = () => {
-      ctx.fillStyle = "rgba(5, 5, 5, 0.1)"
+      ctx.fillStyle = "rgba(5, 5, 5, 0.15)"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      ctx.fillStyle = "#6366f1" // Primary theme color
-      ctx.font = `${fontSize}px monospace`
 
       for (let i = 0; i < drops.length; i++) {
         const text = characters.charAt(Math.floor(Math.random() * characters.length))
+        
+        // Varying colors for depth
+        const alpha = Math.random() * 0.5 + 0.2
+        ctx.fillStyle = i % 10 === 0 ? `rgba(90, 212, 255, ${alpha})` : `rgba(99, 102, 241, ${alpha})`
+        
+        ctx.font = `${fontSize}px monospace`
         ctx.fillText(text, i * fontSize, drops[i] * fontSize)
 
         if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
@@ -53,10 +60,19 @@ const MatrixBackground = () => {
     }
 
     const interval = setInterval(draw, 33)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('resize', resize)
+    }
   }, [])
 
-  return <canvas ref={canvasRef} className="absolute inset-0 z-0 opacity-20" />
+  return (
+    <div className="absolute inset-0 z-0 pointer-events-none">
+      <canvas ref={canvasRef} className="opacity-40" />
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
+    </div>
+  )
 }
 
 export default function LoginPage() {
@@ -111,97 +127,122 @@ export default function LoginPage() {
         
         await setDoc(doc(db, "admins", uid), {
           id: uid,
-          name: "System Admin",
+          name: "Root Administrator",
           role: "SuperAdmin",
           adminUserId: uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         })
 
-        toast({ title: "System Initialized", description: "Master access key secured. Initializing engine..." })
-        setTimeout(() => router.push('/dashboard'), 3500)
+        toast({ title: "Master Key Established", description: "Encryption protocols synchronized." })
+        setTimeout(() => router.push('/dashboard'), 4000)
       } else {
         if (password === configSnap.data().masterPassword) {
-          toast({ title: "Access Granted", description: "Synchronizing intelligence nodes..." })
+          toast({ title: "Access Granted", description: "Decrypting session tokens..." })
           const adminRef = doc(db, "admins", uid)
           const adminSnap = await getDoc(adminRef)
           if (!adminSnap.exists()) {
             await setDoc(adminRef, {
               id: uid,
-              name: "Authorized Admin",
-              role: "SystemAdmin",
+              name: "Authenticated Personnel",
+              role: "Analyst",
               adminUserId: uid,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             })
           }
-          setTimeout(() => router.push('/dashboard'), 3500)
+          setTimeout(() => router.push('/dashboard'), 4000)
         } else {
           setIsLoading(false)
-          toast({ title: "Access Denied", description: "Invalid security passkey.", variant: "destructive" })
+          toast({ title: "Access Denied", description: "Signature mismatch detected.", variant: "destructive" })
         }
       }
     } catch (err) {
       setIsLoading(false)
-      toast({ title: "Link Error", description: "Handshake failure.", variant: "destructive" })
+      toast({ title: "Handshake Error", description: "Remote node rejected connection.", variant: "destructive" })
     }
   }
 
   if (isInitializing) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#050505] text-primary">
-        <Activity className="h-12 w-12 animate-pulse mb-4" />
-        <p className="text-[10px] font-code uppercase tracking-[0.5em] animate-flicker">Waking Neural Network...</p>
+        <Network className="h-12 w-12 animate-pulse mb-4" />
+        <p className="text-[10px] font-code uppercase tracking-[0.5em] animate-flicker">Awakening Distributed Nodes...</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      <MatrixBackground />
-      <FuturisticLoader isVisible={isLoading} status={isFirstRun ? "INITIALIZING MASTER ENGINE..." : "SYNCING NEURAL NODES..."} />
+    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden font-code">
+      <AdvancedMatrixBackground />
+      <FuturisticLoader isVisible={isLoading} status={isFirstRun ? "CONSTRUCTING ROOT DIRECTORY..." : "BYPASSING SECURITY LAYERS..."} />
       
-      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-      <div className="absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
-
-      <div className="mb-12 flex flex-col items-center text-center relative z-10">
-        <div className="relative mb-8">
-           <div className="absolute inset-0 bg-primary/20 blur-3xl animate-pulse" />
-           <div className="relative w-24 h-24 bg-black/60 border border-white/10 rounded-3xl flex items-center justify-center shadow-2xl overflow-hidden group">
-              <Zap className="h-12 w-12 text-primary group-hover:scale-125 transition-transform duration-500" />
-              <div className="absolute inset-x-0 bottom-0 h-1 bg-primary animate-scanning" />
-           </div>
+      {/* Decorative HUD Elements */}
+      <div className="absolute top-8 left-8 flex flex-col space-y-2 opacity-30 select-none pointer-events-none hidden lg:flex">
+        <div className="flex items-center space-x-3 text-[10px] text-primary">
+          <Terminal className="h-3 w-3" /> <span>SYS.LOG_ACTIVE</span>
         </div>
-        <h1 className="text-6xl font-headline font-black text-white mb-2 tracking-tighter italic">
-          WEB HUNTER <span className="text-primary">PRO</span>
-        </h1>
-        <div className="inline-flex items-center space-x-3 px-4 py-1.5 bg-primary/10 rounded-full border border-primary/20">
-           <Terminal className="h-3.5 w-3.5 text-primary" />
-           <p className="text-[10px] font-code text-primary uppercase tracking-[0.4em] font-bold">Encrypted Authorization Layer</p>
+        <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
+          <div className="w-1/2 h-full bg-primary animate-scanning" />
+        </div>
+        <div className="flex items-center space-x-3 text-[10px] text-accent">
+          <Cpu className="h-3 w-3" /> <span>NODE_CLUSTER_7A</span>
         </div>
       </div>
 
-      <Card className="w-full max-w-lg bg-black/60 backdrop-blur-3xl border-white/10 shadow-[0_60px_120px_-20px_rgba(0,0,0,1)] relative z-10 p-4">
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-primary via-accent to-primary animate-pulse" />
-        <CardHeader className="space-y-4">
+      <div className="absolute top-8 right-8 flex flex-col items-end space-y-2 opacity-30 select-none pointer-events-none hidden lg:flex">
+        <div className="flex items-center space-x-3 text-[10px] text-accent">
+           <span>ENCRYPTION: AES-4096</span> <Shield className="h-3 w-3" />
+        </div>
+        <div className="text-[8px] text-white/40 text-right">
+          PACKET_LOSS: 0.00%<br/>
+          LATENCY: 12ms
+        </div>
+      </div>
+
+      <div className="mb-12 flex flex-col items-center text-center relative z-10 scale-110 lg:scale-125">
+        <div className="relative mb-6">
+           <div className="absolute inset-0 bg-primary/30 blur-[60px] animate-pulse rounded-full" />
+           <div className="relative w-20 h-20 bg-black/80 border border-white/10 rounded-2xl flex items-center justify-center shadow-2xl overflow-hidden group">
+              <Zap className="h-10 w-10 text-primary group-hover:scale-110 transition-transform duration-500 fill-primary/20" />
+              <div className="absolute inset-x-0 bottom-0 h-0.5 bg-primary animate-scanning" />
+           </div>
+        </div>
+        <h1 className="text-5xl font-headline font-black text-white mb-2 tracking-tighter italic uppercase">
+          WEB HUNTER <span className="text-primary text-glow">PRO</span>
+        </h1>
+        <div className="inline-flex items-center space-x-3 px-3 py-1 bg-primary/5 rounded border border-primary/10">
+           <div className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+           <p className="text-[9px] font-code text-primary uppercase tracking-[0.4em] font-black">Secure Shell v4.2</p>
+        </div>
+      </div>
+
+      <Card className="w-full max-w-md bg-black/40 backdrop-blur-3xl border-white/5 shadow-[0_0_100px_rgba(0,0,0,1)] relative z-10 p-1 overflow-hidden group hover:border-primary/20 transition-colors duration-700">
+        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent animate-pulse" />
+        <CardHeader className="space-y-3 pt-8 pb-4">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-3xl font-headline font-black text-white uppercase italic tracking-tight">
-               {isFirstRun ? "Initialize Engine" : "Master Node Access"}
-            </CardTitle>
-            <div className={`h-2.5 w-2.5 rounded-full ${isFirstRun ? 'bg-accent' : 'bg-primary'} animate-pulse shadow-[0_0_10px_currentColor]`} />
+            <div className="space-y-1">
+              <CardTitle className="text-2xl font-headline font-black text-white uppercase italic tracking-tight">
+                 {isFirstRun ? "System Root" : "Master Node"}
+              </CardTitle>
+              <CardDescription className="text-[10px] uppercase tracking-widest text-primary/60 font-black">
+                {isFirstRun ? "Initialize Primary Credentials" : "Authorization Required"}
+              </CardDescription>
+            </div>
+            <ShieldAlert className="h-6 w-6 text-primary/40" />
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
           <form onSubmit={handleLogin} className="space-y-8">
-            <div className="space-y-3">
-              <Label className="text-[11px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center">
-                <Lock className="h-3 w-3 mr-2" /> Security Handshake Required
-              </Label>
-              <div className="relative group">
+            <div className="space-y-4">
+              <p className="text-[10px] text-muted-foreground/60 leading-relaxed italic text-center px-4">
+                Synchronize your administrative passkey to gain entry. Encryption keys are generated per session.
+              </p>
+              <div className="relative group/input">
                 <Input 
                   type={showPassword ? "text" : "password"} 
-                  placeholder="ENTER ACCESS KEY" 
-                  className="bg-primary/5 border-white/10 h-16 text-lg tracking-[0.5em] focus:ring-primary focus:border-primary/40 transition-all font-code text-center uppercase font-black"
+                  placeholder="MASTER PASSKEY" 
+                  className="bg-white/5 border-white/10 h-16 text-md tracking-[0.6em] focus:ring-primary focus:border-primary/40 transition-all font-code text-center uppercase font-black placeholder:tracking-normal placeholder:opacity-20"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
@@ -210,72 +251,66 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-primary transition-colors"
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
             <Button 
               type="submit" 
-              className="w-full h-16 bg-primary hover:bg-primary/90 text-white font-black tracking-[0.3em] uppercase transition-all duration-500 shadow-[0_0_40px_rgba(99,102,241,0.3)] hover:shadow-[0_0_60px_rgba(99,102,241,0.5)] border-t border-white/20"
+              className="w-full h-16 bg-primary hover:bg-primary/90 text-white font-black tracking-[0.4em] uppercase transition-all duration-700 shadow-glow relative overflow-hidden group/btn"
               disabled={isLoading}
             >
-              {isLoading ? (
-                <div className="flex items-center space-x-3">
-                  <Activity className="h-5 w-5 animate-spin" />
-                  <span>SYNCING...</span>
-                </div>
-              ) : (
-                <>
-                  {isFirstRun ? "DEPLOY ENGINE" : "INITIALIZE LINK"} <ArrowRight className="ml-3 h-5 w-5" />
-                </>
-              )}
+              <div className="absolute inset-0 bg-white/10 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-500" />
+              <span className="relative flex items-center justify-center">
+                {isLoading ? (
+                  <>
+                    <Activity className="h-5 w-5 animate-spin mr-3" />
+                    SYNCING...
+                  </>
+                ) : (
+                  <>
+                    {isFirstRun ? "INITIALIZE" : "AUTHORIZE"} <ArrowRight className="ml-3 h-4 w-4 group-hover/btn:translate-x-2 transition-transform" />
+                  </>
+                )}
+              </span>
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex flex-col space-y-6 pt-4">
-          <div className="w-full grid grid-cols-3 gap-4">
-            <div className="h-0.5 bg-white/5" />
-            <div className="h-0.5 bg-primary/20" />
-            <div className="h-0.5 bg-white/5" />
-          </div>
-          <div className="flex items-center space-x-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest justify-center">
-             <div className="flex items-center">
-               <Globe className="h-3 w-3 mr-1.5 text-accent" /> GEO-LOCK: OFF
-             </div>
-             <div className="w-1 h-1 rounded-full bg-white/20" />
-             <div className="flex items-center">
-               <Cpu className="h-3 w-3 mr-1.5 text-primary" /> LOAD: NOMINAL
-             </div>
+        <CardFooter className="flex flex-col space-y-4 pt-2 pb-6 opacity-40">
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+          <div className="flex items-center justify-center space-x-6 text-[8px] font-black uppercase tracking-widest text-muted-foreground">
+             <span className="flex items-center"><Globe className="h-2.5 w-2.5 mr-1 text-primary" /> GLOBAL_SYNC: ON</span>
+             <span className="flex items-center"><Cpu className="h-2.5 w-2.5 mr-1 text-accent" /> ENGINE_LOAD: 0%</span>
           </div>
         </CardFooter>
       </Card>
 
-      <div className="mt-16 flex items-center space-x-12 opacity-30 pointer-events-none relative z-10">
-        <TermItem label="HANDSHAKE" value="RSA-4096" />
-        <TermItem label="NODE" value="DISTRIBUTED" />
-        <TermItem label="BYPASS" value="ENABLED" />
+      <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8 opacity-20 hidden lg:grid">
+        <StatItem label="IP_ADDR" value="[HIDDEN]" />
+        <StatItem label="SOCKETS" value="ESTABLISHED" />
+        <StatItem label="THREAD" value="PRIMARY" />
+        <StatItem label="BYPASS" value="STANDBY" />
       </div>
 
       <style jsx>{`
-        @keyframes scanning {
-          0% { transform: translateY(-40px); opacity: 0; }
-          50% { opacity: 1; }
-          100% { transform: translateY(40px); opacity: 0; }
+        @keyframes flicker {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
         }
-        .animate-scanning { animation: scanning 1.5s linear infinite; }
-        .animate-flicker { animation: flicker 3s linear infinite; }
+        .animate-flicker { animation: flicker 0.1s infinite; }
+        .text-glow { text-shadow: 0 0 15px hsla(var(--primary), 0.6); }
       `}</style>
     </div>
   )
 }
 
-function TermItem({ label, value }: { label: string, value: string }) {
+function StatItem({ label, value }: { label: string, value: string }) {
   return (
     <div className="flex flex-col items-center">
-      <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-1">{label}</span>
-      <span className="text-[11px] font-code text-white font-bold italic">{value}</span>
+      <span className="text-[7px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">{label}</span>
+      <span className="text-[10px] text-white font-bold italic tracking-widest">{value}</span>
     </div>
   )
 }

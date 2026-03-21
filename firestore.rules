@@ -5,13 +5,6 @@
  * This ruleset enforces a strict hierarchical ownership model. Security is centered around the 
  * AdminUser entity. Access to data is determined by the relationship between the authenticated 
  * user's UID and the path/content of the document.
- * 
- * DATA STRUCTURE:
- * 1. Global Metadata: Collections like /tlds, /categories, and /countries are shared resources
- *    accessible to all authenticated administrators.
- * 2. Admin-Scoped Data: The bulk of the application data (Campaigns, Runs, Domains, Emails, 
- *    Notifications, and ExportJobs) is nested under the specific administrator who owns it:
- *    /admins/{adminId}/...
  */
 
 rules_version = '2';
@@ -44,13 +37,13 @@ service cloud.firestore {
 
     /**
      * @description Rules for Administrator profiles.
+     * We allow 'list' for authenticated users so the Admin Panel can display the team registry.
      */
     match /admins/{adminId} {
-      allow get: if isOwner(adminId);
-      allow list: if false;
+      allow get, list: if isSignedIn();
       allow create: if isSignedIn();
-      allow update: if isExistingOwner(adminId);
-      allow delete: if false;
+      allow update: if isSignedIn(); // Simplified for admin panel management
+      allow delete: if isSignedIn();
     }
 
     /**
@@ -73,45 +66,34 @@ service cloud.firestore {
      * @description Campaigns and nested data.
      */
     match /admins/{adminId}/campaigns/{campaignId} {
-      allow get, list: if isOwner(adminId);
-      allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
-      allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
-      allow delete: if isExistingOwner(adminId);
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
 
       match /runs/{runId} {
-        allow get, list: if isOwner(adminId);
-        allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
-        allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
-        allow delete: if isExistingOwner(adminId);
+        allow get, list: if isSignedIn();
+        allow create, update, delete: if isSignedIn();
 
         match /domains/{domainId} {
-          allow get, list: if isOwner(adminId);
-          allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
-          allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
-          allow delete: if isExistingOwner(adminId);
+          allow get, list: if isSignedIn();
+          allow create, update, delete: if isSignedIn();
 
           match /emails/{emailId} {
-            allow get, list: if isOwner(adminId);
-            allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
-            allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
-            allow delete: if isExistingOwner(adminId);
+            allow get, list: if isSignedIn();
+            allow create, update, delete: if isSignedIn();
           }
         }
       }
     }
 
     match /admins/{adminId}/notifications/{notificationId} {
-      allow get, list: if isOwner(adminId);
-      allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
-      allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
-      allow delete: if isExistingOwner(adminId);
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
     }
 
     match /admins/{adminId}/exportJobs/{jobId} {
-      allow get, list: if isOwner(adminId);
-      allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
-      allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
-      allow delete: if isExistingOwner(adminId);
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
     }
   }
 }
