@@ -10,27 +10,27 @@ export const stats = [
 ];
 
 export const recentCampaigns = [
-  { id: '1', name: 'SaaS Competitors - UK', status: 'Completed', emails: 4231, domains: 12000, date: '2024-03-20' },
+  { id: '1', name: 'SaaS Competitors - UK', status: 'Completed', emails: 4231, domains: 12000, date: '2024-03-20', progress: 100 },
   { id: '2', name: 'Real Estate Leads - Miami', status: 'Running', progress: 65, emails: 2100, domains: 8500, date: '2024-03-21' },
-  { id: '3', name: 'E-commerce Platforms - EU', status: 'Paused', emails: 890, domains: 4500, date: '2024-03-19' },
-  { id: '4', name: 'Tech Agencies - London', status: 'Completed', emails: 1240, domains: 5200, date: '2024-03-18' },
+  { id: '3', name: 'E-commerce Platforms - EU', status: 'Paused', emails: 890, domains: 4500, date: '2024-03-19', progress: 32 },
+  { id: '4', name: 'Tech Agencies - London', status: 'Completed', emails: 1240, domains: 5200, date: '2024-03-18', progress: 100 },
 ];
 
 export const notifications = [
-  { id: '1', title: 'Campaign Completed', description: 'SaaS Competitors - UK campaign has finished.', time: '2 mins ago', unread: true },
-  { id: '2', title: 'Export Ready', description: 'Your export for Miami Leads is ready for download.', time: '1 hour ago', unread: true },
-  { id: '3', title: 'System Warning', description: 'API 3 is currently experiencing higher latency.', time: '5 hours ago', unread: false },
-  { id: '4', title: 'New Admin Added', description: 'User "Sarah Miller" was added as an administrator.', time: '1 day ago', unread: false },
+  { id: '1', title: 'Campaign Started', description: 'Miami Leads - Expansion engine has been initialized.', time: 'Just now', unread: true, type: 'campaignStarted' },
+  { id: '2', title: 'Export Completed', description: 'SaaS Competitors - UK CSV is ready for download.', time: '12 mins ago', unread: true, type: 'exportCompleted' },
+  { id: '3', title: 'System Warning', description: 'API Node #4 is experiencing higher than usual latency.', time: '1 hour ago', unread: false, type: 'error' },
+  { id: '4', title: 'Campaign Completed', description: 'Real Estate Leads - Miami has reached its 2000 domain quota.', time: '2 hours ago', unread: false, type: 'campaignCompleted' },
 ];
 
 export const chartData = [
-  { name: 'Mon', emails: 4200 },
-  { name: 'Tue', emails: 3800 },
-  { name: 'Wed', emails: 5100 },
-  { name: 'Thu', emails: 4600 },
-  { name: 'Fri', emails: 6200 },
-  { name: 'Sat', emails: 3100 },
-  { name: 'Sun', emails: 2400 },
+  { name: 'Mon', emails: 4200, domains: 12000 },
+  { name: 'Tue', emails: 3800, domains: 10500 },
+  { name: 'Wed', emails: 5100, domains: 15000 },
+  { name: 'Thu', emails: 4600, domains: 13200 },
+  { name: 'Fri', emails: 6200, domains: 18000 },
+  { name: 'Sat', emails: 3100, domains: 9000 },
+  { name: 'Sun', emails: 2400, domains: 7500 },
 ];
 
 export const activityLog = [
@@ -38,4 +38,5 @@ export const activityLog = [
   { id: '2', action: 'Validated', target: 'contact@stripe.com', result: 'Valid', time: '12:04:22' },
   { id: '3', action: 'Failed', target: 'private-domain.net', result: '403 Forbidden', time: '12:04:15' },
   { id: '4', action: 'Scraped', target: 'vercel.com', result: '12 emails found', time: '12:04:05' },
+  { id: '5', action: 'Queued', target: 'amazon.com', result: 'Batch #882', time: '12:03:55' },
 ];
