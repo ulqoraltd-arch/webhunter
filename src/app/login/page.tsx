@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Zap, Shield, ArrowRight, Lock, Eye, EyeOff, Terminal, Activity } from "lucide-react"
+import { Zap, Shield, ArrowRight, Lock, Eye, EyeOff, Terminal, Activity, Globe, Cpu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,52 @@ import { useFirestore, useAuth } from "@/firebase"
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
 import { signInAnonymously } from "firebase/auth"
 import { FuturisticLoader } from "@/components/ui/futuristic-loader"
+
+const MatrixBackground = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<>[]{}/?*&^%$#@!"
+    const fontSize = 14
+    const columns = canvas.width / fontSize
+    const drops: number[] = []
+
+    for (let i = 0; i < columns; i++) {
+      drops[i] = 1
+    }
+
+    const draw = () => {
+      ctx.fillStyle = "rgba(5, 5, 5, 0.1)"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      ctx.fillStyle = "#6366f1" // Primary theme color
+      ctx.font = `${fontSize}px monospace`
+
+      for (let i = 0; i < drops.length; i++) {
+        const text = characters.charAt(Math.floor(Math.random() * characters.length))
+        ctx.fillText(text, i * fontSize, drops[i] * fontSize)
+
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+          drops[i] = 0
+        }
+        drops[i]++
+      }
+    }
+
+    const interval = setInterval(draw, 33)
+    return () => clearInterval(interval)
+  }, [])
+
+  return <canvas ref={canvasRef} className="absolute inset-0 z-0 opacity-20" />
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -112,51 +158,50 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      <MatrixBackground />
       <FuturisticLoader isVisible={isLoading} status={isFirstRun ? "INITIALIZING MASTER ENGINE..." : "SYNCING NEURAL NODES..."} />
       
-      {/* Background Ambience */}
       <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
       <div className="absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
 
-      <div className="mb-12 flex flex-col items-center text-center">
+      <div className="mb-12 flex flex-col items-center text-center relative z-10">
         <div className="relative mb-8">
            <div className="absolute inset-0 bg-primary/20 blur-3xl animate-pulse" />
-           <div className="relative w-20 h-20 bg-black/40 border border-white/10 rounded-2xl flex items-center justify-center shadow-2xl overflow-hidden group">
-              <Zap className="h-10 w-10 text-primary group-hover:scale-125 transition-transform duration-500" />
-              <div className="absolute inset-x-0 bottom-0 h-0.5 bg-primary animate-scanning" />
+           <div className="relative w-24 h-24 bg-black/60 border border-white/10 rounded-3xl flex items-center justify-center shadow-2xl overflow-hidden group">
+              <Zap className="h-12 w-12 text-primary group-hover:scale-125 transition-transform duration-500" />
+              <div className="absolute inset-x-0 bottom-0 h-1 bg-primary animate-scanning" />
            </div>
         </div>
-        <h1 className="text-5xl font-headline font-black text-white mb-2 tracking-tighter">
+        <h1 className="text-6xl font-headline font-black text-white mb-2 tracking-tighter italic">
           WEB HUNTER <span className="text-primary">PRO</span>
         </h1>
-        <div className="inline-flex items-center space-x-2 px-3 py-1 bg-white/5 rounded border border-white/5">
-           <Terminal className="h-3 w-3 text-accent" />
-           <p className="text-[10px] font-code text-muted-foreground uppercase tracking-widest">Advanced Intelligence Node v1.4.2</p>
+        <div className="inline-flex items-center space-x-3 px-4 py-1.5 bg-primary/10 rounded-full border border-primary/20">
+           <Terminal className="h-3.5 w-3.5 text-primary" />
+           <p className="text-[10px] font-code text-primary uppercase tracking-[0.4em] font-bold">Encrypted Authorization Layer</p>
         </div>
       </div>
 
-      <Card className="w-full max-w-md bg-black/40 backdrop-blur-3xl border-white/10 shadow-[0_40px_100px_-20px_rgba(0,0,0,0.8)] relative">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-accent to-primary opacity-50" />
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-headline font-bold text-white flex items-center">
-             {isFirstRun ? "Engine Setup" : "Neural Handshake"}
-          </CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">
-            {isFirstRun 
-              ? "Initialize this intelligence node with a master encryption key." 
-              : "Synchronize your administrative passkey to gain entry."}
-          </CardDescription>
+      <Card className="w-full max-w-lg bg-black/60 backdrop-blur-3xl border-white/10 shadow-[0_60px_120px_-20px_rgba(0,0,0,1)] relative z-10 p-4">
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-primary via-accent to-primary animate-pulse" />
+        <CardHeader className="space-y-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-3xl font-headline font-black text-white uppercase italic tracking-tight">
+               {isFirstRun ? "Initialize Engine" : "Master Node Access"}
+            </CardTitle>
+            <div className={`h-2.5 w-2.5 rounded-full ${isFirstRun ? 'bg-accent' : 'bg-primary'} animate-pulse shadow-[0_0_10px_currentColor]`} />
+          </div>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Security Passkey</Label>
+          <form onSubmit={handleLogin} className="space-y-8">
+            <div className="space-y-3">
+              <Label className="text-[11px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center">
+                <Lock className="h-3 w-3 mr-2" /> Security Handshake Required
+              </Label>
               <div className="relative group">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                 <Input 
                   type={showPassword ? "text" : "password"} 
-                  placeholder="********" 
-                  className="bg-white/5 border-white/10 pl-10 pr-10 h-12 text-sm focus:ring-primary focus:border-primary/40 transition-all font-code"
+                  placeholder="ENTER ACCESS KEY" 
+                  className="bg-primary/5 border-white/10 h-16 text-lg tracking-[0.5em] focus:ring-primary focus:border-primary/40 transition-all font-code text-center uppercase font-black"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
@@ -165,38 +210,52 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
             </div>
             <Button 
               type="submit" 
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-white font-bold tracking-widest uppercase transition-all duration-500 shadow-glow hover:shadow-[0_0_30px_hsl(var(--primary)/0.4)]"
+              className="w-full h-16 bg-primary hover:bg-primary/90 text-white font-black tracking-[0.3em] uppercase transition-all duration-500 shadow-[0_0_40px_rgba(99,102,241,0.3)] hover:shadow-[0_0_60px_rgba(99,102,241,0.5)] border-t border-white/20"
               disabled={isLoading}
             >
-              {isLoading ? "ESTABLISHING LINK..." : (
+              {isLoading ? (
+                <div className="flex items-center space-x-3">
+                  <Activity className="h-5 w-5 animate-spin" />
+                  <span>SYNCING...</span>
+                </div>
+              ) : (
                 <>
-                  {isFirstRun ? "INITIALIZE ENGINE" : "GAIN ACCESS"} <ArrowRight className="ml-2 h-4 w-4" />
+                  {isFirstRun ? "DEPLOY ENGINE" : "INITIALIZE LINK"} <ArrowRight className="ml-3 h-5 w-5" />
                 </>
               )}
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex flex-col space-y-4 pt-0">
-          <div className="flex items-center space-x-2 text-[8px] font-bold text-muted-foreground uppercase tracking-widest justify-center">
-            <Shield className="h-2 w-2 text-green-400" />
-            <span>256-BIT NEURAL ENCRYPTION ACTIVE</span>
+        <CardFooter className="flex flex-col space-y-6 pt-4">
+          <div className="w-full grid grid-cols-3 gap-4">
+            <div className="h-0.5 bg-white/5" />
+            <div className="h-0.5 bg-primary/20" />
+            <div className="h-0.5 bg-white/5" />
+          </div>
+          <div className="flex items-center space-x-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest justify-center">
+             <div className="flex items-center">
+               <Globe className="h-3 w-3 mr-1.5 text-accent" /> GEO-LOCK: OFF
+             </div>
+             <div className="w-1 h-1 rounded-full bg-white/20" />
+             <div className="flex items-center">
+               <Cpu className="h-3 w-3 mr-1.5 text-primary" /> LOAD: NOMINAL
+             </div>
           </div>
         </CardFooter>
       </Card>
 
-      <div className="mt-16 flex items-center space-x-8 opacity-20 pointer-events-none">
-        <Activity className="h-4 w-4 text-primary animate-pulse" />
-        <TermItem label="LINK" value="ENCRYPTED" />
-        <TermItem label="LOAD" value="2.1%" />
-        <TermItem label="GEO" value="DISTRIBUTED" />
+      <div className="mt-16 flex items-center space-x-12 opacity-30 pointer-events-none relative z-10">
+        <TermItem label="HANDSHAKE" value="RSA-4096" />
+        <TermItem label="NODE" value="DISTRIBUTED" />
+        <TermItem label="BYPASS" value="ENABLED" />
       </div>
 
       <style jsx>{`
@@ -206,7 +265,7 @@ export default function LoginPage() {
           100% { transform: translateY(40px); opacity: 0; }
         }
         .animate-scanning { animation: scanning 1.5s linear infinite; }
-        .shadow-glow { box-shadow: 0 0 15px -5px hsl(var(--primary)); }
+        .animate-flicker { animation: flicker 3s linear infinite; }
       `}</style>
     </div>
   )
@@ -215,8 +274,8 @@ export default function LoginPage() {
 function TermItem({ label, value }: { label: string, value: string }) {
   return (
     <div className="flex flex-col items-center">
-      <span className="text-[7px] font-black text-muted-foreground uppercase">{label}</span>
-      <span className="text-[9px] font-code text-white font-bold">{value}</span>
+      <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-1">{label}</span>
+      <span className="text-[11px] font-code text-white font-bold italic">{value}</span>
     </div>
   )
 }

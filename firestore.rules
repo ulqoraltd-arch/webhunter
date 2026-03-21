@@ -35,13 +35,11 @@ service cloud.firestore {
     // --- COLLECTION RULES ---
 
     /**
-     * @description Public check for system initialization.
-     * @path /system/config
+     * @description System configuration and protocols.
+     * Accessible by any authenticated admin node.
      */
-    match /system/config {
-      allow get: if true;
-      allow create: if isSignedIn();
-      allow update: if isOwner(request.auth.uid);
+    match /system/{document=**} {
+      allow read, write: if isSignedIn();
     }
 
     /**
