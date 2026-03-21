@@ -5,7 +5,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Download, Calendar, FileSpreadsheet, Loader2, CalendarRange, Trash2 } from "lucide-react"
+import { Download, Calendar, FileSpreadsheet, Loader2, CalendarRange, Trash2, Database, AlertCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -13,19 +13,22 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase"
-import { collection } from "firebase/firestore"
+import { collection, getDocs, query, where, orderBy } from "firebase/firestore"
 import { useToast } from "@/hooks/use-toast"
+import { format, startOfDay, endOfDay, parseISO, isWithinInterval } from "date-fns"
 
 export default function ExportPage() {
   const router = useRouter()
   const { toast } = useToast()
   const { user, isUserLoading } = useUser()
   const db = useFirestore()
+  
   const [isExporting, setIsExporting] = useState(false)
   const [exportMode, setExportMode] = useState<"campaign" | "day" | "range">("campaign")
   const [selectedCampaign, setSelectedCampaign] = useState("all")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [previewData, setPreviewData] = useState<any[]>([])
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -38,9 +41,9 @@ export default function ExportPage() {
     return collection(db, "admins", user.uid, "campaigns")
   }, [db, user])
 
-  const { data: campaigns, isLoading } = useCollection(campaignsQuery)
+  const { data: campaigns } = useCollection(campaignsQuery)
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if ((exportMode === 'day' && !startDate) || (exportMode === 'range' && (!startDate || !endDate))) {
       toast({ title: "Input Required", description: "Please select valid date parameters.", variant: "destructive" })
       return
@@ -48,34 +51,85 @@ export default function ExportPage() {
 
     setIsExporting(true)
     
-    // Logic for compiling the CSV
-    setTimeout(() => {
-      let fileName = `webhunter_export_${new Date().toISOString().split('T')[0]}`
-      if (exportMode === 'campaign') {
-        const camp = campaigns?.find(c => c.id === selectedCampaign)
-        fileName = `campaign_${camp ? camp.name.replace(/\s/g, '_') : 'all'}`
+    try {
+      let allExportRows: any[] = []
+      
+      // We need to fetch domains across campaigns
+      // For this SaaS prototype, we iterate through campaigns to gather data
+      if (campaigns) {
+        for (const camp of campaigns) {
+          if (exportMode === 'campaign' && selectedCampaign !== 'all' && camp.id !== selectedCampaign) continue
+
+          const domainsRef = collection(db, "admins", user?.uid!, "campaigns", camp.id, "runs", camp.lastRunId || "active", "domains")
+          const domainsSnap = await getDocs(domainsRef)
+          
+          for (const domainDoc of domainsSnap.docs) {
+            const domainData = domainDoc.data()
+            const createdDate = domainData.createdAt?.toDate() || new Date()
+
+            // Filter by date if needed
+            if (exportMode === 'day') {
+              const target = startOfDay(parseISO(startDate))
+              if (startOfDay(createdDate).getTime() !== target.getTime()) continue
+            } else if (exportMode === 'range') {
+              const start = startOfDay(parseISO(startDate))
+              const end = endOfDay(parseISO(endDate))
+              if (!isWithinInterval(createdDate, { start, end })) continue
+            }
+
+            // Fetch emails for this domain
+            const emailsRef = collection(db, "admins", user?.uid!, "campaigns", camp.id, "runs", camp.lastRunId || "active", "domains", domainDoc.id, "emails")
+            const emailsSnap = await getDocs(emailsRef)
+            const emails = emailsSnap.docs.map(d => d.data().emailAddress).join('; ')
+
+            allExportRows.push({
+              domain: domainData.domainName,
+              emails,
+              campaign: camp.name,
+              status: domainData.status,
+              date: format(createdDate, 'yyyy-MM-dd HH:mm:ss')
+            })
+          }
+        }
       }
 
-      const csvRows = [
-        ["Domain", "Emails", "Country", "Category", "Campaign", "Date"],
-        ["example-tech.com", "info@example-tech.com;support@example-tech.com", "US", "Technology", "Discovery_V1", new Date().toLocaleDateString()],
-        ["saas-node.io", "admin@saas-node.io", "UK", "SaaS", "Discovery_V1", new Date().toLocaleDateString()]
-      ]
+      if (allExportRows.length === 0) {
+        toast({ title: "No Data Found", description: "Zero results matched your current filters.", variant: "destructive" })
+        setIsExporting(false)
+        return
+      }
 
-      const csvContent = "data:text/csv;charset=utf-8," 
-        + csvRows.map(e => e.join(",")).join("\n")
-      
-      const encodedUri = encodeURI(csvContent)
+      // Generate CSV
+      const headers = ["Domain", "Extracted Emails", "Source Campaign", "Status", "Timestamp"]
+      const csvContent = [
+        headers.join(","),
+        ...allExportRows.map(row => [
+          row.domain,
+          `"${row.emails}"`,
+          `"${row.campaign}"`,
+          row.status,
+          row.date
+        ].join(","))
+      ].join("\n")
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
       const link = document.createElement("a")
-      link.setAttribute("href", encodedUri)
-      link.setAttribute("download", `${fileName}.csv`)
+      const url = URL.createObjectURL(blob)
+      const fileName = `webhunter_export_${exportMode}_${format(new Date(), 'yyyyMMdd')}.csv`
+      
+      link.setAttribute("href", url)
+      link.setAttribute("download", fileName)
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       
       setIsExporting(false)
-      toast({ title: "Compilation Complete", description: "CSV binary stream delivered successfully." })
-    }, 2500)
+      toast({ title: "Export Successful", description: `${allExportRows.length} identities synthesized into CSV.` })
+    } catch (err) {
+      console.error(err)
+      setIsExporting(false)
+      toast({ title: "Export Failed", description: "An error occurred during binary stream compilation.", variant: "destructive" })
+    }
   }
 
   if (isUserLoading) return null
@@ -87,22 +141,28 @@ export default function ExportPage() {
         <Header />
         
         <main className="p-8 space-y-8">
-          <div>
-            <h1 className="text-3xl font-headline font-bold text-white mb-1">Export Repository</h1>
-            <p className="text-muted-foreground">Synthesize and compile extracted datasets into standard CSV formats.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-headline font-bold text-white mb-2 tracking-tighter uppercase italic">Export Repository</h1>
+              <p className="text-muted-foreground text-lg">Synthesize and compile extracted datasets into standard CSV binary streams.</p>
+            </div>
+            <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20">
+              <Database className="h-8 w-8 text-primary animate-pulse" />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            <Card className="lg:col-span-1 bg-card border-white/5 h-fit shadow-2xl">
+            <Card className="lg:col-span-1 bg-card border-white/5 h-fit shadow-2xl overflow-hidden">
+              <div className="h-1 w-full bg-gradient-to-r from-primary to-accent" />
               <CardHeader>
-                <CardTitle className="font-headline">Extraction Filter</CardTitle>
+                <CardTitle className="font-headline text-xl">Extraction Filter</CardTitle>
                 <CardDescription>Select compilation protocol.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label>Export Strategy</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Export Strategy</Label>
                   <Select value={exportMode} onValueChange={(v: any) => setExportMode(v)}>
-                    <SelectTrigger className="bg-secondary/30 border-white/10">
+                    <SelectTrigger className="bg-secondary/30 border-white/10 h-12">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -115,9 +175,9 @@ export default function ExportPage() {
 
                 {exportMode === "campaign" && (
                   <div className="space-y-2">
-                    <Label>Target Campaign</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Target Cluster</Label>
                     <Select value={selectedCampaign} onValueChange={setSelectedCampaign}>
-                      <SelectTrigger className="bg-secondary/30 border-white/10">
+                      <SelectTrigger className="bg-secondary/30 border-white/10 h-12">
                         <SelectValue placeholder="All Campaigns" />
                       </SelectTrigger>
                       <SelectContent>
@@ -132,12 +192,14 @@ export default function ExportPage() {
 
                 {(exportMode === "day" || exportMode === "range") && (
                   <div className="space-y-2">
-                    <Label>{exportMode === "day" ? "Target Date" : "Start Date"}</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      {exportMode === "day" ? "Target Day" : "Start Interval"}
+                    </Label>
                     <div className="relative">
                       <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input 
                         type="date" 
-                        className="bg-secondary/30 border-white/10 pl-10 h-11" 
+                        className="bg-secondary/30 border-white/10 pl-10 h-12" 
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
                       />
@@ -147,12 +209,12 @@ export default function ExportPage() {
 
                 {exportMode === "range" && (
                   <div className="space-y-2">
-                    <Label>End Date</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">End Interval</Label>
                     <div className="relative">
                       <CalendarRange className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input 
                         type="date" 
-                        className="bg-secondary/30 border-white/10 pl-10 h-11" 
+                        className="bg-secondary/30 border-white/10 pl-10 h-12" 
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
                       />
@@ -161,20 +223,20 @@ export default function ExportPage() {
                 )}
 
                 <Button 
-                  className="w-full bg-primary hover:bg-primary/90 glow-primary h-12 font-bold"
+                  className="w-full bg-primary hover:bg-primary/90 glow-primary h-14 font-black tracking-[0.2em] uppercase text-xs"
                   onClick={handleExport}
                   disabled={isExporting}
                 >
-                  {isExporting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Download className="h-4 w-4 mr-2" />}
+                  {isExporting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Download className="h-4 w-4 mr-3" />}
                   Generate Binary CSV
                 </Button>
               </CardContent>
             </Card>
 
             <Card className="lg:col-span-3 bg-card border-white/5 shadow-2xl">
-              <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-white/5">
+              <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-white/5 bg-white/[0.02]">
                 <div>
-                  <CardTitle className="font-headline">Dataset Preview</CardTitle>
+                  <CardTitle className="font-headline text-xl">Engine Performance Snapshot</CardTitle>
                   <CardDescription>Compilation snippet based on current parameters.</CardDescription>
                 </div>
               </CardHeader>
@@ -182,17 +244,20 @@ export default function ExportPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/5 hover:bg-transparent">
-                      <TableHead className="font-headline">Domain Identity</TableHead>
-                      <TableHead className="font-headline">Extracted Emails</TableHead>
-                      <TableHead className="font-headline">Origin</TableHead>
-                      <TableHead className="font-headline text-right">Timestamp</TableHead>
+                      <TableHead className="font-headline uppercase text-[10px] tracking-widest">Domain Identity</TableHead>
+                      <TableHead className="font-headline uppercase text-[10px] tracking-widest">Identity Yield</TableHead>
+                      <TableHead className="font-headline uppercase text-[10px] tracking-widest">Source Node</TableHead>
+                      <TableHead className="font-headline uppercase text-[10px] tracking-widest text-right">Timestamp</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     <TableRow className="border-white/5 text-xs text-muted-foreground italic">
-                      <TableCell colSpan={4} className="py-12 text-center">
-                        <FileSpreadsheet className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                        Enter extraction parameters to initialize preview.
+                      <TableCell colSpan={4} className="py-24 text-center">
+                        <div className="flex flex-col items-center">
+                          <FileSpreadsheet className="h-16 w-16 mb-6 opacity-5 animate-pulse" />
+                          <p className="text-lg font-headline font-bold text-white/40">INITIALIZE PARAMETERS</p>
+                          <p className="text-sm mt-2">Select extraction filters to compile data stream preview.</p>
+                        </div>
                       </TableCell>
                     </TableRow>
                   </TableBody>
