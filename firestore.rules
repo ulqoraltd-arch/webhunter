@@ -1,10 +1,6 @@
+
 /**
- * WebHunter Pro Security Rules
- * 
- * CORE PHILOSOPHY:
- * This ruleset enforces a strict hierarchical ownership model. Security is centered around the 
- * AdminUser entity. Access to data is determined by the relationship between the authenticated 
- * user's UID and the path/content of the document.
+ * WebHunter Pro Security Rules - Hardened RBAC
  */
 
 rules_version = '2';
@@ -21,79 +17,79 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isExistingOwner(userId) {
-      return isOwner(userId) && resource != null;
+    // Returns true if the authenticated user has the SuperAdmin role
+    function isSuperAdmin() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'SuperAdmin';
     }
 
     // --- COLLECTION RULES ---
 
     /**
      * @description System configuration and protocols.
-     * Accessible by any authenticated admin node.
+     * Read by all admins, write ONLY by SuperAdmins.
      */
     match /system/{document=**} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
     }
 
     /**
      * @description Rules for Administrator profiles.
-     * We allow 'list' for authenticated users so the Admin Panel can display the team registry.
      */
     match /admins/{adminId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn(); // Simplified for admin panel management
-      allow delete: if isSignedIn();
+      allow get: if isOwner(adminId) || isSuperAdmin();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn(); // Allow initial signup, but role logic is in app
+      allow update: if isOwner(adminId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     /**
      * @description Shared metadata lists.
+     * Read by all authenticated users, write ONLY by SuperAdmins.
      */
     match /tlds/{tldId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow write: if isSuperAdmin();
     }
     match /categories/{categoryId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow write: if isSuperAdmin();
     }
     match /countries/{countryId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow write: if isSuperAdmin();
     }
 
     /**
      * @description Campaigns and nested data.
+     * Enforces path-based ownership or SuperAdmin access.
      */
     match /admins/{adminId}/campaigns/{campaignId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isSignedIn();
+      allow get, list: if isOwner(adminId) || isSuperAdmin();
+      allow create: if isOwner(adminId) || isSuperAdmin();
+      allow update, delete: if isOwner(adminId) || isSuperAdmin();
 
       match /runs/{runId} {
-        allow get, list: if isSignedIn();
-        allow create, update, delete: if isSignedIn();
+        allow read, write: if isOwner(adminId) || isSuperAdmin();
 
         match /domains/{domainId} {
-          allow get, list: if isSignedIn();
-          allow create, update, delete: if isSignedIn();
+          allow read, write: if isOwner(adminId) || isSuperAdmin();
 
           match /emails/{emailId} {
-            allow get, list: if isSignedIn();
-            allow create, update, delete: if isSignedIn();
+            allow read, write: if isOwner(adminId) || isSuperAdmin();
           }
         }
       }
     }
 
     match /admins/{adminId}/notifications/{notificationId} {
-      allow get, list: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow read, write: if isOwner(adminId) || isSuperAdmin();
     }
 
     match /admins/{adminId}/exportJobs/{jobId} {
-      allow get, list: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow read, write: if isOwner(adminId) || isSuperAdmin();
     }
   }
 }
