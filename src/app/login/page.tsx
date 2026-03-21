@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect } from "react"
@@ -10,8 +9,9 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { useFirestore, useAuth } from "@/firebase"
-import { doc, getDoc, setDoc } from "firebase/firestore"
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
 import { signInAnonymously } from "firebase/auth"
+import { FuturisticLoader } from "@/components/ui/futuristic-loader"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -23,21 +23,27 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isFirstRun, setIsFirstRun] = useState(false)
+  const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
-    const checkSetup = async () => {
+    const initializeHandshake = async () => {
       try {
+        // Sign in anonymously first to avoid permission errors on config check
+        await signInAnonymously(auth)
+        
         const configRef = doc(db, "system", "config")
         const configSnap = await getDoc(configRef)
         if (!configSnap.exists()) {
           setIsFirstRun(true)
         }
       } catch (err) {
-        console.error("Setup check failed", err)
+        console.error("System handshake failed", err)
+      } finally {
+        setIsInitializing(false)
       }
     }
-    checkSetup()
-  }, [db])
+    initializeHandshake()
+  }, [db, auth])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,42 +51,63 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      // 1. Establish Firebase Session (Anonymous) to get a UID for security rules
-      const userCredential = await signInAnonymously(auth)
-      const uid = userCredential.user.uid
+      // Re-confirm auth state
+      const user = auth.currentUser || (await signInAnonymously(auth)).user
+      const uid = user.uid
 
       const configRef = doc(db, "system", "config")
       const configSnap = await getDoc(configRef)
 
       if (!configSnap.exists()) {
-        // First run: Save the password as the master password
+        // FIRST RUN: Persist master password and create admin profile
         await setDoc(configRef, {
           masterPassword: password,
-          setupAt: new Date().toISOString()
+          isInitialized: true,
+          setupAt: serverTimestamp(),
+          adminUserId: uid
         })
         
-        // Also create an admin profile for the UID
         await setDoc(doc(db, "admins", uid), {
           id: uid,
           name: "System Admin",
           role: "SuperAdmin",
-          createdAt: new Date().toISOString()
+          adminUserId: uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         })
 
         toast({
           title: "System Initialized",
-          description: "Master access key has been secured.",
+          description: "Global master access key has been secured.",
         })
-        router.push('/dashboard')
+        
+        // Delay redirect to show the futuristic loader's transition
+        setTimeout(() => router.push('/dashboard'), 2000)
       } else {
-        // Subsequent logins: Verify against stored passkey
+        // SUBSEQUENT RUNS: Verify against master key
         if (password === configSnap.data().masterPassword) {
           toast({
-            title: "Connection Established",
-            description: "Welcome back to the command center.",
+            title: "Access Granted",
+            description: "Establishing secure link to Command Center.",
           })
-          router.push('/dashboard')
+          
+          // Ensure admin profile exists for the current anonymous session
+          const adminRef = doc(db, "admins", uid)
+          const adminSnap = await getDoc(adminRef)
+          if (!adminSnap.exists()) {
+            await setDoc(adminRef, {
+              id: uid,
+              name: "Authorized Admin",
+              role: "SystemAdmin",
+              adminUserId: uid,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            })
+          }
+
+          setTimeout(() => router.push('/dashboard'), 2000)
         } else {
+          setIsLoading(false)
           toast({
             title: "Access Denied",
             description: "Invalid security passkey provided.",
@@ -89,18 +116,28 @@ export default function LoginPage() {
         }
       }
     } catch (err) {
+      setIsLoading(false)
       toast({
-        title: "Connection Error",
-        description: "Could not establish secure handshake.",
+        title: "Link Error",
+        description: "Could not establish secure handshake with engine.",
         variant: "destructive"
       })
-    } finally {
-      setIsLoading(false)
     }
+  }
+
+  if (isInitializing) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-background">
+        <Zap className="h-12 w-12 text-primary animate-pulse mb-4" />
+        <p className="text-xs font-code text-muted-foreground uppercase tracking-widest">Waking Cluster...</p>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      <FuturisticLoader isVisible={isLoading} status={isFirstRun ? "Deploying Cluster Core..." : "Authenticating Node Access..."} />
+      
       <div className="absolute top-1/4 -left-20 w-96 h-96 bg-primary/10 rounded-full blur-[120px]" />
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-accent/10 rounded-full blur-[120px]" />
 
@@ -115,11 +152,11 @@ export default function LoginPage() {
       <Card className="w-full max-w-md bg-card/80 backdrop-blur-xl border-white/5 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-headline font-bold text-white">
-            {isFirstRun ? "Setup Master Key" : "System Access"}
+            {isFirstRun ? "System Setup" : "System Access"}
           </CardTitle>
           <CardDescription>
             {isFirstRun 
-              ? "Initialize your instance with a master security passkey." 
+              ? "Initialize your instance with a global master passkey." 
               : "Provide your passkey to enter the secure environment."}
           </CardDescription>
         </CardHeader>
@@ -132,7 +169,7 @@ export default function LoginPage() {
                 <Input 
                   id="passkey" 
                   type={showPassword ? "text" : "password"} 
-                  placeholder="Enter your secure key" 
+                  placeholder="Enter secure key" 
                   className="bg-secondary/30 border-white/10 pl-10 pr-10 h-11"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -153,9 +190,9 @@ export default function LoginPage() {
               className="w-full h-11 bg-primary hover:bg-primary/90 glow-primary transition-all duration-300"
               disabled={isLoading}
             >
-              {isLoading ? "Validating Protocol..." : (
+              {isLoading ? "Synchronizing..." : (
                 <>
-                  {isFirstRun ? "Deploy Infrastructure" : "Open Link"} <ArrowRight className="ml-2 h-4 w-4" />
+                  {isFirstRun ? "Initialize Engine" : "Open Link"} <ArrowRight className="ml-2 h-4 w-4" />
                 </>
               )}
             </Button>
@@ -164,13 +201,13 @@ export default function LoginPage() {
         <CardFooter className="flex flex-col space-y-4 pt-0">
           <div className="flex items-center space-x-2 text-xs text-muted-foreground justify-center">
             <Shield className="h-3 w-3" />
-            <span>AES-256 End-to-End Encryption</span>
+            <span>AES-256 Protocol Encryption</span>
           </div>
         </CardFooter>
       </Card>
 
       <div className="mt-12 text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-        &copy; 2024 WebHunter Pro // Engine Build v1.0.4
+        &copy; 2024 WebHunter Pro // Engine Build v1.1.2
       </div>
     </div>
   )
