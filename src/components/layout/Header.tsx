@@ -1,3 +1,4 @@
+
 "use client"
 
 import { Bell, Search, Activity, Cpu, Sparkles, CheckCircle, AlertCircle, FileText } from "lucide-react"
@@ -25,7 +26,7 @@ export function Header() {
   }
 
   return (
-    <header className="h-16 border-b bg-background/80 backdrop-blur-xl sticky top-0 z-40 px-8 flex items-center justify-between border-white/5">
+    <header className="h-16 border-b bg-background/80 backdrop-blur-xl sticky top-0 z-40 px-8 flex items-center justify-between border-white/5 pt-2">
       <div className="flex items-center space-x-10">
         <div className="flex items-center text-xs font-bold text-muted-foreground uppercase tracking-widest">
           <div className="h-2 w-2 rounded-full bg-accent mr-2 animate-pulse shadow-[0_0_8px_hsl(var(--accent))]" />
@@ -45,10 +46,6 @@ export function Header() {
             placeholder="Universal Command Search..." 
             className="h-10 w-80 bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:bg-white/[0.08] transition-all placeholder:text-muted-foreground/50"
           />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-focus-within:flex items-center gap-1">
-             <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-muted-foreground">⌘</kbd>
-             <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-muted-foreground">K</kbd>
-          </div>
         </div>
 
         <div className="h-6 w-px bg-white/10" />
@@ -68,7 +65,6 @@ export function Header() {
                 <h3 className="font-headline font-bold text-white">System Events</h3>
                 <Badge className="bg-accent/10 text-accent border-0 text-[10px] px-1.5">{unreadCount} New</Badge>
               </div>
-              <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-tighter hover:bg-white/5 h-7">Mark All Read</Button>
             </div>
             <ScrollArea className="max-h-[450px]">
               <div className="flex flex-col">
@@ -95,11 +91,6 @@ export function Header() {
                 ))}
               </div>
             </ScrollArea>
-            <div className="p-3 text-center border-t border-white/5 bg-white/[0.02]">
-              <Button variant="ghost" size="sm" className="w-full text-[10px] font-black uppercase tracking-widest text-primary hover:text-primary/80 hover:bg-transparent">
-                Open Activity Log Center
-              </Button>
-            </div>
           </PopoverContent>
         </Popover>
       </div>
