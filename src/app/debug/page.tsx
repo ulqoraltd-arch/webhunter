@@ -15,6 +15,7 @@ import { useFirestore, useUser, useDoc, useMemoFirebase } from "@/firebase"
 import { doc } from "firebase/firestore"
 import axios from "axios"
 import { io, Socket } from "socket.io-client"
+import { cn } from "@/lib/utils"
 
 export default function DebugTerminalPage() {
   const { toast } = useToast()

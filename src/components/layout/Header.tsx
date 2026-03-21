@@ -28,7 +28,7 @@ export function Header() {
   const db = useFirestore()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
 
-  // Real-time Telemetry Data
+  // Real-time Telemetry Data from Firestore
   const activeCampaignsQuery = useMemoFirebase(() => {
     if (!db || !user) return null
     return query(
@@ -39,8 +39,9 @@ export function Header() {
 
   const { data: activeCampaigns } = useCollection(activeCampaignsQuery)
   
+  // Real status based on active jobs
   const engineStatus = activeCampaigns && activeCampaigns.length > 0 ? "Operational" : "Standby"
-  const workerLoad = activeCampaigns ? Math.min(100, activeCampaigns.length * 12) : 0
+  const workerLoad = activeCampaigns ? Math.min(100, activeCampaigns.length * 15) : 0
 
   const notificationsQuery = useMemoFirebase(() => {
     if (!db || !user) return null
@@ -71,7 +72,7 @@ export function Header() {
   }
 
   return (
-    <header className="h-20 border-b bg-background/80 backdrop-blur-xl sticky top-0 z-40 px-4 md:px-8 flex items-center justify-between border-white/5">
+    <header className="h-20 border-b bg-background/80 backdrop-blur-xl sticky top-0 z-40 px-4 md:px-8 py-4 flex items-center justify-between border-white/5">
       <div className="flex items-center">
         {/* Mobile Sidebar Trigger */}
         <Sheet>
