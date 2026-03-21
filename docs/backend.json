@@ -1,0 +1,919 @@
+{
+  "entities": {
+    "AdminUser": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AdminUser",
+      "type": "object",
+      "description": "Represents an administrator user with specific access permissions within the WebHunter Pro platform. This entity manages administrative access and roles.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the AdminUser entity."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email address of the administrator, used for login and identification.",
+          "format": "email"
+        },
+        "name": {
+          "type": "string",
+          "description": "The full name of the administrator."
+        },
+        "permissions": {
+          "type": "array",
+          "description": "An array of strings listing the pages or features the administrator has access to (e.g., 'dashboard', 'campaigns', 'adminPanel').",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when the administrator account was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when the administrator account was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "permissions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Tld": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Tld",
+      "type": "object",
+      "description": "Represents a Top-Level Domain (TLD) that can be used as a filter for scraping campaigns.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Tld entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the TLD (e.g., 'com', 'org', 'net')."
+        },
+        "description": {
+          "type": "string",
+          "description": "A brief description of the TLD or its common usage."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this TLD entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this TLD entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Category": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Category",
+      "type": "object",
+      "description": "Represents a content category that can be used as a filter for scraping campaigns.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Category entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the category (e.g., 'Technology', 'Finance', 'Education')."
+        },
+        "description": {
+          "type": "string",
+          "description": "A brief description of the category."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this category entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this category entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Country": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Country",
+      "type": "object",
+      "description": "Represents a country that can be used as a geographical filter for scraping campaigns, including its ISO code.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Country entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The full name of the country (e.g., 'United States')."
+        },
+        "isoCode": {
+          "type": "string",
+          "description": "The two-letter ISO 3166-1 alpha-2 code for the country (e.g., 'US', 'GB')."
+        },
+        "description": {
+          "type": "string",
+          "description": "A brief description or additional information about the country."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this country entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this country entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "isoCode",
+        "description",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Campaign": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Campaign",
+      "type": "object",
+      "description": "Defines a scraping campaign, including its configuration, filters, and overall status. It acts as a blueprint for multiple campaign runs.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Campaign entity."
+        },
+        "adminUserId": {
+          "type": "string",
+          "description": "Reference to the AdminUser who created this campaign. (Relationship: AdminUser 1:N Campaign)"
+        },
+        "name": {
+          "type": "string",
+          "description": "A user-friendly name for the campaign."
+        },
+        "keywords": {
+          "type": "array",
+          "description": "A list of keywords (short-tail or long-tail) to be used for domain discovery.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tldIds": {
+          "type": "array",
+          "description": "References to Tld entities used as filters for this campaign. (Relationship: Tld N:N Campaign)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "categoryIds": {
+          "type": "array",
+          "description": "References to Category entities used as filters for this campaign. (Relationship: Category N:N Campaign)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "countryIds": {
+          "type": "array",
+          "description": "References to Country entities used as geographical filters for this campaign. (Relationship: Country N:N Campaign)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetEmailCount": {
+          "type": "number",
+          "description": "The desired minimum number of valid emails to be extracted for this campaign."
+        },
+        "mode": {
+          "type": "string",
+          "description": "The execution mode of the campaign (e.g., 'instant' for immediate run, 'scheduled' for a future run).",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scheduledDateTime": {
+          "type": "string",
+          "description": "The specific date and time when a 'scheduled' campaign is set to run. Optional.",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current overall status of the campaign.",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when the campaign was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when the campaign was last updated.",
+          "format": "date-time"
+        },
+        "lastRunId": {
+          "type": "string",
+          "description": "Reference to the ID of the most recent or currently active CampaignRun associated with this campaign. (Relationship: Campaign 1:1 CampaignRun)"
+        },
+        "totalDomainsFetched": {
+          "type": "number",
+          "description": "Accumulated count of all unique domains fetched across all runs of this campaign."
+        },
+        "totalEmailsExtracted": {
+          "type": "number",
+          "description": "Accumulated count of all emails extracted across all runs of this campaign."
+        },
+        "validEmailsCount": {
+          "type": "number",
+          "description": "Accumulated count of all valid emails extracted across all runs of this campaign."
+        },
+        "flaggedEmailsCount": {
+          "type": "number",
+          "description": "Accumulated count of all flagged emails extracted across all runs of this campaign."
+        }
+      },
+      "required": [
+        "id",
+        "adminUserId",
+        "name",
+        "keywords",
+        "tldIds",
+        "categoryIds",
+        "countryIds",
+        "targetEmailCount",
+        "mode",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "totalDomainsFetched",
+        "totalEmailsExtracted",
+        "totalEmailsExtracted",
+        "validEmailsCount",
+        "flaggedEmailsCount"
+      ]
+    },
+    "CampaignRun": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "CampaignRun",
+      "type": "object",
+      "description": "Represents a single execution instance of a scraping campaign, tracking its real-time progress and results.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the CampaignRun entity."
+        },
+        "campaignId": {
+          "type": "string",
+          "description": "Reference to the parent Campaign entity this run belongs to. (Relationship: Campaign 1:N CampaignRun)"
+        },
+        "adminUserId": {
+          "type": "string",
+          "description": "Reference to the AdminUser who initiated this specific campaign run. (Relationship: AdminUser 1:N CampaignRun)"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of this specific campaign run.",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Timestamp indicating when this campaign run started.",
+          "format": "date-time"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Timestamp indicating when this campaign run completed or was stopped.",
+          "format": "date-time"
+        },
+        "progressTotalUrlsToProcess": {
+          "type": "number",
+          "description": "The total number of unique URLs identified for scraping in this run."
+        },
+        "progressUrlsProcessed": {
+          "type": "number",
+          "description": "The number of URLs already processed (scraped) in this run."
+        },
+        "progressUrlsRemaining": {
+          "type": "number",
+          "description": "The number of URLs still pending processing in this run."
+        },
+        "progressDomainsWithEmails": {
+          "type": "number",
+          "description": "The count of domains from which at least one email has been extracted during this run."
+        },
+        "totalEmailsExtracted": {
+          "type": "number",
+          "description": "Total number of emails extracted in this run, including valid and flagged."
+        },
+        "validEmailsExtracted": {
+          "type": "number",
+          "description": "Total number of emails validated as 'valid' in this run."
+        },
+        "flaggedEmailsExtracted": {
+          "type": "number",
+          "description": "Total number of emails flagged (invalid or suspicious) in this run."
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Detailed reason for the campaign run failure, if applicable."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this campaign run entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this campaign run entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "campaignId",
+        "adminUserId",
+        "status",
+        "startTime",
+        "progressTotalUrlsToProcess",
+        "progressUrlsProcessed",
+        "progressUrlsRemaining",
+        "progressDomainsWithEmails",
+        "totalEmailsExtracted",
+        "validEmailsExtracted",
+        "flaggedEmailsExtracted",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ScrapedDomain": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ScrapedDomain",
+      "type": "object",
+      "description": "Represents a single domain from which data was scraped, along with its associated metadata and scraping outcome.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ScrapedDomain entity."
+        },
+        "domainName": {
+          "type": "string",
+          "description": "The clean root domain name that was scraped (e.g., 'example.com')."
+        },
+        "campaignId": {
+          "type": "string",
+          "description": "Reference to the Campaign that led to scraping this domain. (Relationship: Campaign 1:N ScrapedDomain)"
+        },
+        "campaignRunId": {
+          "type": "string",
+          "description": "Reference to the specific CampaignRun instance during which this domain was scraped. (Relationship: CampaignRun 1:N ScrapedDomain)"
+        },
+        "countryId": {
+          "type": "string",
+          "description": "Reference to the Country associated with this domain, if determined or inferred. (Relationship: Country 1:N ScrapedDomain)"
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "Reference to the Category associated with this domain, if determined or inferred. (Relationship: Category 1:N ScrapedDomain)"
+        },
+        "emailCount": {
+          "type": "number",
+          "description": "The total number of emails extracted from this domain."
+        },
+        "status": {
+          "type": "string",
+          "description": "The scraping status for this domain (e.g., 'success', 'no_emails', 'failed').",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pageUrls": {
+          "type": "array",
+          "description": "A list of specific page URLs within the domain from which content or emails were extracted.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadata": {
+          "type": "string",
+          "description": "A string or JSON string for storing additional, unstructured domain-specific data (e.g., IP address, hosting provider, more detailed errors)."
+        },
+        "lastScrapedAt": {
+          "type": "string",
+          "description": "Timestamp of the last time this domain was successfully scraped.",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this scraped domain entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this scraped domain entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "domainName",
+        "campaignId",
+        "campaignRunId",
+        "emailCount",
+        "status",
+        "pageUrls",
+        "lastScrapedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ExtractedEmail": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ExtractedEmail",
+      "type": "object",
+      "description": "Represents a single email address extracted from a scraped domain, along with its validation status.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ExtractedEmail entity."
+        },
+        "emailAddress": {
+          "type": "string",
+          "description": "The extracted email address.",
+          "format": "email"
+        },
+        "scrapedDomainId": {
+          "type": "string",
+          "description": "Reference to the ScrapedDomain from which this email was extracted. (Relationship: ScrapedDomain 1:N ExtractedEmail)"
+        },
+        "campaignId": {
+          "type": "string",
+          "description": "Reference to the Campaign associated with this email. (Relationship: Campaign 1:N ExtractedEmail)"
+        },
+        "campaignRunId": {
+          "type": "string",
+          "description": "Reference to the specific CampaignRun instance during which this email was extracted. (Relationship: CampaignRun 1:N ExtractedEmail)"
+        },
+        "urlFoundOn": {
+          "type": "string",
+          "description": "The specific page URL where this email address was found."
+        },
+        "isValid": {
+          "type": "boolean",
+          "description": "Boolean indicating whether the email was validated as 'valid'."
+        },
+        "validationStatus": {
+          "type": "string",
+          "description": "Detailed status of the email validation (e.g., 'valid', 'invalid_mx', 'flagged_syntax', 'flagged_disposable', 'flagged_catchall', 'unknown', 'unvalidated').",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "validatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this email was last validated.",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this extracted email entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this extracted email entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "emailAddress",
+        "scrapedDomainId",
+        "campaignId",
+        "campaignRunId",
+        "urlFoundOn",
+        "isValid",
+        "validationStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Notification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Notification",
+      "type": "object",
+      "description": "Represents a system-generated notification or activity log entry for an administrator, appearing in the global notification system.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Notification entity."
+        },
+        "adminUserId": {
+          "type": "string",
+          "description": "Reference to the AdminUser to whom this notification is directed. (Relationship: AdminUser 1:N Notification)"
+        },
+        "title": {
+          "type": "string",
+          "description": "A concise title for the notification."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of the event or message."
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Timestamp indicating when the notification was generated.",
+          "format": "date-time"
+        },
+        "isRead": {
+          "type": "boolean",
+          "description": "Boolean indicating whether the administrator has read this notification."
+        },
+        "eventType": {
+          "type": "string",
+          "description": "Categorization of the type of event this notification represents (e.g., 'campaignStarted', 'error').",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "relatedCampaignId": {
+          "type": "string",
+          "description": "Optional reference to a Campaign entity if the notification is campaign-specific. (Relationship: Campaign 1:N Notification)"
+        },
+        "relatedExportId": {
+          "type": "string",
+          "description": "Optional reference to an ExportJob entity if the notification is export-specific. (Relationship: ExportJob 1:N Notification)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this notification entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this notification entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "adminUserId",
+        "title",
+        "description",
+        "timestamp",
+        "isRead",
+        "eventType",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ExportJob": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ExportJob",
+      "type": "object",
+      "description": "Manages and tracks the status of data export operations, which can be long-running processes.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ExportJob entity."
+        },
+        "adminUserId": {
+          "type": "string",
+          "description": "Reference to the AdminUser who initiated this export job. (Relationship: AdminUser 1:N ExportJob)"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the export job.",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exportType": {
+          "type": "string",
+          "description": "The type of data being exported (e.g., 'allData', 'byCampaign', 'byDateRange', 'singleDomain').",
+          "format": "enum",
+          "items": {
+            "type": "string"
+          }
+        },
+        "campaignId": {
+          "type": "string",
+          "description": "Optional reference to a Campaign if the export is campaign-specific. (Relationship: Campaign 1:N ExportJob)"
+        },
+        "domainId": {
+          "type": "string",
+          "description": "Optional reference to a ScrapedDomain if the export is for a single domain. (Relationship: ScrapedDomain 1:N ExportJob)"
+        },
+        "dateRangeStart": {
+          "type": "string",
+          "description": "The start date and time for a date range export. Optional.",
+          "format": "date-time"
+        },
+        "dateRangeEnd": {
+          "type": "string",
+          "description": "The end date and time for a date range export. Optional.",
+          "format": "date-time"
+        },
+        "filePath": {
+          "type": "string",
+          "description": "The file path or URI where the exported CSV file is stored."
+        },
+        "fileName": {
+          "type": "string",
+          "description": "The name of the exported file (e.g., 'campaign_export_2023-10-27.csv')."
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the export job started processing.",
+          "format": "date-time"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the export job completed or failed.",
+          "format": "date-time"
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Detailed reason for the export job failure, if applicable."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this export job entry was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp indicating when this export job entry was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "adminUserId",
+        "status",
+        "exportType",
+        "fileName",
+        "startTime",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/admins/{adminId}",
+        "definition": {
+          "entityName": "AdminUser",
+          "schema": {
+            "$ref": "#/backend/entities/AdminUser"
+          },
+          "description": "Collection for administrator user profiles. Documents here represent authenticated admins and contain their specific access permissions. Access to this collection itself defines administrative roles (DBAC). Only the respective admin can read/update their own profile, and creating/deleting admins requires specific admin panel permissions. Permissions are stored directly on the document for Authorization Independence.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the administrator."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/tlds/{tldId}",
+        "definition": {
+          "entityName": "Tld",
+          "schema": {
+            "$ref": "#/backend/entities/Tld"
+          },
+          "description": "Globally accessible list of Top-Level Domains. Managed by administrators. All documents in this collection share the same security requirements: readable by authenticated administrators, writable only by authorized administrators (Structural Segregation).",
+          "params": [
+            {
+              "name": "tldId",
+              "description": "Unique identifier for the TLD."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/categories/{categoryId}",
+        "definition": {
+          "entityName": "Category",
+          "schema": {
+            "$ref": "#/backend/entities/Category"
+          },
+          "description": "Globally accessible list of content categories. Managed by administrators. All documents in this collection share the same security requirements: readable by authenticated administrators, writable only by authorized administrators (Structural Segregation).",
+          "params": [
+            {
+              "name": "categoryId",
+              "description": "Unique identifier for the Category."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/countries/{countryId}",
+        "definition": {
+          "entityName": "Country",
+          "schema": {
+            "$ref": "#/backend/entities/Country"
+          },
+          "description": "Globally accessible list of countries with ISO codes. Managed by administrators. All documents in this collection share the same security requirements: readable by authenticated administrators, writable only by authorized administrators (Structural Segregation).",
+          "params": [
+            {
+              "name": "countryId",
+              "description": "Unique identifier for the Country."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/admins/{adminId}/campaigns/{campaignId}",
+        "definition": {
+          "entityName": "Campaign",
+          "schema": {
+            "$ref": "#/backend/entities/Campaign"
+          },
+          "description": "Campaigns created by a specific administrator. This uses hierarchical path-based ownership. Documents include denormalized 'adminUserId' for Authorization Independence, enabling rules to verify ownership without parent document lookups.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the owning administrator."
+            },
+            {
+              "name": "campaignId",
+              "description": "Unique identifier for the Campaign."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/admins/{adminId}/campaigns/{campaignId}/runs/{runId}",
+        "definition": {
+          "entityName": "CampaignRun",
+          "schema": {
+            "$ref": "#/backend/entities/CampaignRun"
+          },
+          "description": "Individual execution runs for a specific campaign, nested under its parent campaign and owning administrator. Documents include denormalized 'adminUserId' and 'campaignId' for Authorization Independence.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the owning administrator."
+            },
+            {
+              "name": "campaignId",
+              "description": "Unique identifier of the parent Campaign."
+            },
+            {
+              "name": "runId",
+              "description": "Unique identifier for the CampaignRun."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/admins/{adminId}/campaigns/{campaignId}/runs/{runId}/domains/{domainId}",
+        "definition": {
+          "entityName": "ScrapedDomain",
+          "schema": {
+            "$ref": "#/backend/entities/ScrapedDomain"
+          },
+          "description": "Domains scraped during a specific campaign run, nested under the run, campaign, and owning administrator. Documents include denormalized 'adminUserId', 'campaignId', and 'campaignRunId' for Authorization Independence.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the owning administrator."
+            },
+            {
+              "name": "campaignId",
+              "description": "Unique identifier of the parent Campaign."
+            },
+            {
+              "name": "runId",
+              "description": "Unique identifier of the parent CampaignRun."
+            },
+            {
+              "name": "domainId",
+              "description": "Unique identifier for the ScrapedDomain."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/admins/{adminId}/campaigns/{campaignId}/runs/{runId}/domains/{domainId}/emails/{emailId}",
+        "definition": {
+          "entityName": "ExtractedEmail",
+          "schema": {
+            "$ref": "#/backend/entities/ExtractedEmail"
+          },
+          "description": "Individual email addresses extracted from a scraped domain, nested deep within the hierarchy to preserve ownership. Documents include denormalized 'adminUserId', 'campaignId', 'campaignRunId', and 'scrapedDomainId' for Authorization Independence.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the owning administrator."
+            },
+            {
+              "name": "campaignId",
+              "description": "Unique identifier of the parent Campaign."
+            },
+            {
+              "name": "runId",
+              "description": "Unique identifier of the parent CampaignRun."
+            },
+            {
+              "name": "domainId",
+              "description": "Unique identifier of the parent ScrapedDomain."
+            },
+            {
+              "name": "emailId",
+              "description": "Unique identifier for the ExtractedEmail."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/admins/{adminId}/notifications/{notificationId}",
+        "definition": {
+          "entityName": "Notification",
+          "schema": {
+            "$ref": "#/backend/entities/Notification"
+          },
+          "description": "Notifications specific to an administrator. Uses path-based ownership. Documents include denormalized 'adminUserId' for Authorization Independence.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the administrator receiving the notification."
+            },
+            {
+              "name": "notificationId",
+              "description": "Unique identifier for the Notification."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/admins/{adminId}/exportJobs/{jobId}",
+        "definition": {
+          "entityName": "ExportJob",
+          "schema": {
+            "$ref": "#/backend/entities/ExportJob"
+          },
+          "description": "Records of export jobs initiated by an administrator. Uses path-based ownership. Documents include denormalized 'adminUserId' for Authorization Independence.",
+          "params": [
+            {
+              "name": "adminId",
+              "description": "The unique Firebase Authentication UID of the administrator who initiated the export job."
+            },
+            {
+              "name": "jobId",
+              "description": "Unique identifier for the ExportJob."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore data structure for WebHunter Pro is designed to prioritize authorization independence, structural segregation, and predictable access modeling, aligning strictly with the provided core design principles. This approach minimizes complexity in security rules, enhances debuggability, and supports scalable data operations.\n\n**Authorization Independence (CRITICAL):**\nThis is achieved through extensive denormalization of authorization context. For any document residing in a subcollection, the `adminUserId` of the owning administrator, and the IDs of all relevant parent entities (e.g., `campaignId`, `campaignRunId`, `scrapedDomainId`), are copied directly into the document itself. For example:\n*   `Campaign` documents will include `adminUserId`.\n*   `CampaignRun` documents will include `adminUserId` and `campaignId`.\n*   `ScrapedDomain` documents will include `adminUserId`, `campaignId`, and `campaignRunId`.\n*   `ExtractedEmail` documents will include `adminUserId`, `campaignId`, `campaignRunId`, and `scrapedDomainId`.\n*   `Notification` and `ExportJob` documents will include `adminUserId`.\nThis strategy ensures that Firestore Security Rules can evaluate access permissions solely based on the `request.auth.uid` and the `resource.data` of the document being accessed, without requiring any `get()` calls to parent documents. This is critical for maintaining atomic operations, simplifying rule logic, and preventing performance bottlenecks or cascading failures due to missing parent documents.\n\n**QAPs (Rules are not Filters) Support:**\nQuerying for authorized data is made efficient and secure through structural segregation and path-based ownership. By nesting user-specific data under `/admins/{adminId}/...`, all `list` operations implicitly filter data by the authenticated user (`request.auth.uid`). For instance, to retrieve all campaigns for an admin, a query to `/admins/{request.auth.uid}/campaigns` will only return campaigns owned by that specific admin. The `adminUserId` field within each campaign document then serves as a direct and atomic check in security rules, ensuring no unauthorized campaigns are returned or accessed. Similarly, global lists like `tlds`, `categories`, and `countries` are stored in top-level collections, ensuring all documents within them share a homogeneous security posture (e.g., read by all authenticated admins, write/update/delete by authorized admins only). This structure ensures that any `list` query automatically operates within the bounds of a well-defined and secure data subset, enabling the efficient implementation of query authorization patterns without relying on client-side filtering or complex, inefficient security rules."
+  }
+}

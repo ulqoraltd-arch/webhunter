@@ -1,0 +1,164 @@
+/**
+ * WebHunter Pro Security Rules
+ * 
+ * CORE PHILOSOPHY:
+ * This ruleset enforces a strict hierarchical ownership model. Security is centered around the 
+ * AdminUser entity. Access to data is determined by the relationship between the authenticated 
+ * user's UID and the path/content of the document.
+ * 
+ * DATA STRUCTURE:
+ * 1. Global Metadata: Collections like /tlds, /categories, and /countries are shared resources
+ *    accessible to all authenticated administrators.
+ * 2. Admin-Scoped Data: The bulk of the application data (Campaigns, Runs, Domains, Emails, 
+ *    Notifications, and ExportJobs) is nested under the specific administrator who owns it:
+ *    /admins/{adminId}/...
+ * 
+ * KEY SECURITY DECISIONS:
+ * - Authorization Independence: Every document in a subcollection contains a denormalized 
+ *   'adminUserId' field. This allows rules to verify ownership instantly without performing 
+ *   expensive get() lookups on parent documents.
+ * - Path-Based Authorization: We enforce that the {adminId} segment in the URL matches the 
+ *   authenticated user's UID for all private data access.
+ * - Relational Integrity: On creation, we ensure the document's internal 'adminUserId' 
+ *   matches the owner's UID. On update, we ensure this ownership field remains immutable.
+ * - Prototyping Flexibility: These rules strictly enforce "who" can access data but do 
+ *   not enforce the specific "shape" or "type" of the data fields, allowing for rapid 
+ *   frontend iteration.
+ * 
+ * DENORMALIZATION FOR AUTHORIZATION:
+ * To avoid slow get() calls, the following fields are required for security checks:
+ * - 'adminUserId' on all Campaign, CampaignRun, ScrapedDomain, ExtractedEmail, 
+ *   Notification, and ExportJob documents.
+ */
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- GLOBAL HELPER FUNCTIONS ---
+
+    /** @description Checks if the request is from an authenticated user. */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /** @description Checks if the authenticated user matches the provided ID. */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /** @description Checks if the user is the owner and the document exists. */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
+    }
+
+    // --- COLLECTION RULES ---
+
+    /**
+     * @description Rules for Administrator profiles.
+     * @path /admins/{adminId}
+     * @allow (get) If user is the specific admin.
+     * @deny (list) Prevent listing all administrators for security.
+     * @principle Path-based ownership for profile management.
+     */
+    match /admins/{adminId} {
+      allow get: if isOwner(adminId);
+      allow list: if false; // Administrators cannot be listed for security
+      allow create: if isOwner(adminId);
+      allow update: if isExistingOwner(adminId);
+      allow delete: if false; // Admin accounts should be handled via Auth/Admin console
+    }
+
+    /**
+     * @description Rules for global configuration entities (TLDs, Categories, Countries).
+     * @path /{collectionId}/{docId} where collectionId is tlds, categories, or countries.
+     * @allow (read) Any authenticated admin can view these filters.
+     * @allow (write) Any authenticated admin can manage the global lists.
+     * @principle Structural segregation of shared metadata.
+     */
+    match /tlds/{tldId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+    match /categories/{categoryId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+    match /countries/{countryId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    /**
+     * @description Rules for Campaigns and their nested data.
+     * @path /admins/{adminId}/campaigns/{campaignId}
+     * @allow (read/write) If the user is the owning admin.
+     * @principle Path-based ownership + Relational Integrity (adminUserId).
+     */
+    match /admins/{adminId}/campaigns/{campaignId} {
+      allow get, list: if isOwner(adminId);
+      allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
+      allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
+      allow delete: if isExistingOwner(adminId);
+
+      /**
+       * @description Rules for Campaign Runs.
+       * @path /admins/{adminId}/campaigns/{campaignId}/runs/{runId}
+       */
+      match /runs/{runId} {
+        allow get, list: if isOwner(adminId);
+        allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
+        allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
+        allow delete: if isExistingOwner(adminId);
+
+        /**
+         * @description Rules for Scraped Domains.
+         * @path /admins/{adminId}/campaigns/{campaignId}/runs/{runId}/domains/{domainId}
+         */
+        match /domains/{domainId} {
+          allow get, list: if isOwner(adminId);
+          allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
+          allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
+          allow delete: if isExistingOwner(adminId);
+
+          /**
+           * @description Rules for Extracted Emails.
+           * @path /admins/{adminId}/campaigns/{campaignId}/runs/{runId}/domains/{domainId}/emails/{emailId}
+           */
+          match /emails/{emailId} {
+            allow get, list: if isOwner(adminId);
+            allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
+            allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
+            allow delete: if isExistingOwner(adminId);
+          }
+        }
+      }
+    }
+
+    /**
+     * @description Rules for user-specific Notifications.
+     * @path /admins/{adminId}/notifications/{notificationId}
+     * @allow (read/write) If the notification belongs to the authenticated admin.
+     * @principle Private notification stream per admin.
+     */
+    match /admins/{adminId}/notifications/{notificationId} {
+      allow get, list: if isOwner(adminId);
+      allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
+      allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
+      allow delete: if isExistingOwner(adminId);
+    }
+
+    /**
+     * @description Rules for tracking background Export Jobs.
+     * @path /admins/{adminId}/exportJobs/{jobId}
+     * @allow (read/write) If the export job was initiated by the authenticated admin.
+     * @principle Secure access to private export artifacts.
+     */
+    match /admins/{adminId}/exportJobs/{jobId} {
+      allow get, list: if isOwner(adminId);
+      allow create: if isOwner(adminId) && request.resource.data.adminUserId == adminId;
+      allow update: if isExistingOwner(adminId) && request.resource.data.adminUserId == resource.data.adminUserId;
+      allow delete: if isExistingOwner(adminId);
+    }
+  }
+}
