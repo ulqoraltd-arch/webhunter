@@ -13,7 +13,7 @@ const RATE_LIMITER_CONFIG = {
 };
 
 export const scrapingQueue = new Queue(SCRAPING_QUEUE_NAME, {
-  connection: redis,
+  connection: redis as any,
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -26,7 +26,7 @@ export const scrapingQueue = new Queue(SCRAPING_QUEUE_NAME, {
 });
 
 export const playwrightQueue = new Queue(PLAYWRIGHT_FALLBACK_QUEUE_NAME, {
-  connection: redis,
+  connection: redis as any,
   defaultJobOptions: {
     attempts: 2,
     backoff: {

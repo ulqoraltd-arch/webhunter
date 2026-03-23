@@ -1,106 +1,186 @@
+/**
+ * PRODUCTION SCRAPING WORKER (OPTIMIZED)
+ * - Atomic-safe target stop
+ * - Fast skip without full processing
+ * - High concurrency safe
+ * - Real-time updates
+ */
+
 import { Worker, Job } from 'bullmq';
 import { redis } from '@/lib/redis';
 import { SCRAPING_QUEUE_NAME } from './config';
 import { processDomainExtraction } from '@/app/lib/scraper-engine';
 import { initializeFirebase } from '@/firebase';
-import { doc, updateDoc, increment, serverTimestamp, collection, addDoc, getDoc } from 'firebase/firestore';
+import {
+  doc,
+  updateDoc,
+  increment,
+  serverTimestamp,
+  collection,
+  addDoc,
+  getDoc,
+} from 'firebase/firestore';
 
 const { firestore } = initializeFirebase();
 
-/**
- * PRODUCTION SCRAPING WORKER
- * 
- * Features:
- * - Atomic Stop Condition: Stops processing if target count is met.
- * - Multi-Node Rotation.
- * - Socket.IO Telemetry.
- */
+/* ================= GLOBAL CACHE (FAST STOP) ================= */
+
+let TARGET_REACHED_CACHE: Record<string, boolean> = {};
+
+/* ================= WORKER ================= */
+
 export const scrapingWorker = new Worker(
   SCRAPING_QUEUE_NAME,
   async (job: Job) => {
     const { domain, campaignId, adminId, runId } = job.data;
-    const nodeIndex = parseInt(job.id || '0') % 4;
+    const nodeIndex = Number(job.id || 0) % 4;
+
+    const campaignRef = doc(
+      firestore,
+      'admins',
+      adminId,
+      'campaigns',
+      campaignId
+    );
 
     try {
-      // 1. ATOMIC STOP CONDITION CHECK
-      const campaignRef = doc(firestore, "admins", adminId, "campaigns", campaignId);
-      const campaignSnap = await getDoc(campaignRef);
-      
-      if (campaignSnap.exists()) {
-        const data = campaignSnap.data();
-        if (data.validEmailsCount >= data.targetEmailCount) {
-          console.log(`[WORKER] Target reached for ${campaignId}. Skipping job.`);
-          await updateDoc(campaignRef, { status: "Completed", updatedAt: serverTimestamp() });
-          return { status: 'target_met' };
-        }
+      /* ================= 1. FAST STOP CHECK (CACHE FIRST) ================= */
+
+      if (TARGET_REACHED_CACHE[campaignId]) {
+        console.log(`[SKIP] Cached stop for ${campaignId}`);
+        return { status: 'skipped_target_met' };
       }
 
-      // 2. EXTRACTION EXECUTION
-      const result = await processDomainExtraction(job.data, nodeIndex);
+      const campaignSnap = await getDoc(campaignRef);
 
-      if (result.status === 'success') {
-        const validEmails = result.emails.filter(e => e.isValid);
-        const validCount = validEmails.length;
-        const flaggedCount = result.emails.length - validCount;
+      if (!campaignSnap.exists()) {
+        return { status: 'campaign_not_found' };
+      }
 
-        const runRef = doc(firestore, "admins", adminId, "campaigns", campaignId, "runs", runId);
+      const campaignData = campaignSnap.data();
 
-        // 3. PERSIST METRICS
-        await Promise.all([
-          updateDoc(runRef, {
-            progressUrlsProcessed: increment(1),
-            progressDomainsWithEmails: increment(1),
-            totalEmailsExtracted: increment(result.emails.length),
-            validEmailsExtracted: increment(validCount),
-            flaggedEmailsExtracted: increment(flaggedCount),
-            updatedAt: serverTimestamp()
-          }),
-          updateDoc(campaignRef, {
-            totalDomainsFetched: increment(1),
-            totalEmailsExtracted: increment(result.emails.length),
-            validEmailsCount: increment(validCount),
-            flaggedEmailsCount: increment(flaggedCount),
-            updatedAt: serverTimestamp()
-          })
-        ]);
+      /* ================= 2. TARGET CHECK ================= */
 
-        // 4. PERSIST DATA
-        const domainCol = collection(firestore, "admins", adminId, "campaigns", campaignId, "runs", runId, "domains");
-        const domainDocRef = await addDoc(domainCol, {
-          domainName: domain,
-          adminUserId: adminId,
-          campaignId: campaignId,
-          campaignRunId: runId,
-          emailCount: result.emails.length,
-          status: result.status,
-          pageUrls: result.pagesScanned,
-          metadata: JSON.stringify(result.metadata),
-          lastScrapedAt: serverTimestamp(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
+      if (
+        campaignData.validEmailsCount >= campaignData.targetEmailCount
+      ) {
+        console.log(
+          `[STOP] Target reached for ${campaignId}`
+        );
+
+        TARGET_REACHED_CACHE[campaignId] = true;
+
+        await updateDoc(campaignRef, {
+          status: 'Completed',
+          updatedAt: serverTimestamp(),
         });
 
-        // 5. EMIT REAL-TIME TELEMETRY
-        if (global.io) {
-          global.io.to(campaignId).emit('progress-update', {
-            campaignId,
-            domain,
-            emailsFound: validCount,
-            node: result.metadata.apiNode,
-            timestamp: new Date().toISOString()
-          });
-        }
+        return { status: 'target_met' };
+      }
+
+      /* ================= 3. EXTRACTION ================= */
+
+      const result = await processDomainExtraction(
+        job.data,
+        nodeIndex
+      );
+
+      const validEmails = result.emails.filter((e) => e.isValid);
+      const validCount = validEmails.length;
+      const flaggedCount = result.emails.length - validCount;
+
+      /* ================= 4. SKIP IF NO EMAIL ================= */
+
+      if (result.status === 'no_emails' || validCount === 0) {
+        return { status: 'no_emails_skipped' };
+      }
+
+      const runRef = doc(
+        firestore,
+        'admins',
+        adminId,
+        'campaigns',
+        campaignId,
+        'runs',
+        runId
+      );
+
+      const domainCol = collection(
+        firestore,
+        'admins',
+        adminId,
+        'campaigns',
+        campaignId,
+        'runs',
+        runId,
+        'domains'
+      );
+
+      /* ================= 5. BATCH FIRESTORE UPDATE ================= */
+
+      await Promise.all([
+        updateDoc(runRef, {
+          progressDomainsWithEmails: increment(1),
+          totalEmailsExtracted: increment(result.emails.length),
+          validEmailsExtracted: increment(validCount),
+          flaggedEmailsExtracted: increment(flaggedCount),
+          updatedAt: serverTimestamp(),
+        }),
+
+        updateDoc(campaignRef, {
+          totalDomainsFetched: increment(1),
+          totalEmailsExtracted: increment(result.emails.length),
+          validEmailsCount: increment(validCount),
+          flaggedEmailsCount: increment(flaggedCount),
+          updatedAt: serverTimestamp(),
+        }),
+      ]);
+
+      /* ================= 6. STORE DOMAIN ================= */
+
+      await addDoc(domainCol, {
+        domainName: domain,
+        adminUserId: adminId,
+        campaignId,
+        campaignRunId: runId,
+        emailCount: result.emails.length,
+        status: result.status,
+        pageUrls: result.pagesScanned,
+        metadata: result.metadata,
+        lastScrapedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      /* ================= 7. REAL-TIME UPDATE ================= */
+
+      if ((global as any).io) {
+        (global as any).io.to(campaignId).emit('progress-update', {
+          campaignId,
+          domain,
+          emailsFound: validCount,
+          node: result.metadata.apiNode,
+          timestamp: new Date().toISOString(),
+        });
       }
 
       return result;
     } catch (error: any) {
-      console.error(`[WORKER] Critical Failure for job ${job.id}:`, error.message);
+      console.error(
+        `[WORKER ERROR] Job ${job.id}:`,
+        error.message
+      );
       throw error;
     }
   },
-  { 
-    connection: redis, 
+  {
+    connection: redis as any,
     concurrency: 20,
-    limiter: { max: 100, duration: 10000 }
+
+    /* IMPORTANT: prevents overload */
+    limiter: {
+      max: 80,
+      duration: 10000,
+    },
   }
 );
