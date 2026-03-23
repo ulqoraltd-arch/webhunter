@@ -1,186 +1,203 @@
 /**
- * PRODUCTION SCRAPING WORKER (OPTIMIZED)
- * - Atomic-safe target stop
- * - Fast skip without full processing
- * - High concurrency safe
- * - Real-time updates
- */
+ *  * PRODUCTION SCRAPING WORKER (OPTIMIZED)
+  * - Atomic-safe target stop
+   * - Fast skip without full processing
+    * - High concurrency safe
+     * - Real-time updates
+      */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), ms)
+    ),
+  ]);
+}
 
-import { Worker, Job } from 'bullmq';
-import { redis } from '@/lib/redis';
-import { SCRAPING_QUEUE_NAME } from './config';
-import { processDomainExtraction } from '@/app/lib/scraper-engine';
-import { initializeFirebase } from '@/firebase';
-import {
-  doc,
-  updateDoc,
-  increment,
-  serverTimestamp,
-  collection,
-  addDoc,
-  getDoc,
-} from 'firebase/firestore';
 
-const { firestore } = initializeFirebase();
+      import { Worker, Job } from 'bullmq';
+      import { redis } from '@/lib/redis';
+      import { SCRAPING_QUEUE_NAME } from './config';
+      import { processDomainExtraction } from '@/app/lib/scraper-engine';
+      import { initializeFirebase } from '@/firebase';
+      import {
+        doc,
+          updateDoc,
+            increment,
+              serverTimestamp,
+                collection,
+                  addDoc,
+                    getDoc,
+                    } from 'firebase/firestore';
 
-/* ================= GLOBAL CACHE (FAST STOP) ================= */
+                    const { firestore } = initializeFirebase();
 
-let TARGET_REACHED_CACHE: Record<string, boolean> = {};
+                    /* ================= GLOBAL CACHE (FAST STOP) ================= */
 
-/* ================= WORKER ================= */
+                    let TARGET_REACHED_CACHE: Record<string, boolean> = {};
 
-export const scrapingWorker = new Worker(
-  SCRAPING_QUEUE_NAME,
-  async (job: Job) => {
-    const { domain, campaignId, adminId, runId } = job.data;
-    const nodeIndex = Number(job.id || 0) % 4;
+                    /* ================= WORKER ================= */
 
-    const campaignRef = doc(
-      firestore,
-      'admins',
-      adminId,
-      'campaigns',
-      campaignId
-    );
+                    export const scrapingWorker = new Worker(
+                      SCRAPING_QUEUE_NAME,
+                        async (job: Job) => {
+                            const { domain, campaignId, adminId, runId } = job.data;
+                                const nodeIndex = Number(job.id || 0) % 4;
 
-    try {
-      /* ================= 1. FAST STOP CHECK (CACHE FIRST) ================= */
+                                    const campaignRef = doc(
+                                          firestore,
+                                                'admins',
+                                                      adminId,
+                                                            'campaigns',
+                                                                  campaignId
+                                                                      );
 
-      if (TARGET_REACHED_CACHE[campaignId]) {
-        console.log(`[SKIP] Cached stop for ${campaignId}`);
-        return { status: 'skipped_target_met' };
-      }
+                                                                          try {
+                                                                                /* ================= 1. FAST STOP CHECK (CACHE FIRST) ================= */
 
-      const campaignSnap = await getDoc(campaignRef);
+                                                                                      if (TARGET_REACHED_CACHE[campaignId]) {
+                                                                                              console.log(`[SKIP] Cached stop for ${campaignId}`);
+                                                                                                      return { status: 'skipped_target_met' };
+                                                                                                            }
 
-      if (!campaignSnap.exists()) {
-        return { status: 'campaign_not_found' };
-      }
+                                                                                                                  const campaignSnap = await getDoc(campaignRef);
 
-      const campaignData = campaignSnap.data();
+                                                                                                                        if (!campaignSnap.exists()) {
+                                                                                                                                return { status: 'campaign_not_found' };
+                                                                                                                                      }
 
-      /* ================= 2. TARGET CHECK ================= */
+                                                                                                                                            const campaignData = campaignSnap.data();
 
-      if (
-        campaignData.validEmailsCount >= campaignData.targetEmailCount
-      ) {
-        console.log(
-          `[STOP] Target reached for ${campaignId}`
-        );
+                                                                                                                                                  /* ================= 2. TARGET CHECK ================= */
 
-        TARGET_REACHED_CACHE[campaignId] = true;
+                                                                                                                                                        if (
+                                                                                                                                                                campaignData.validEmailsCount >= campaignData.targetEmailCount
+                                                                                                                                                                      ) {
+                                                                                                                                                                              console.log(
+                                                                                                                                                                                        `[STOP] Target reached for ${campaignId}`
+                                                                                                                                                                                                );
 
-        await updateDoc(campaignRef, {
-          status: 'Completed',
-          updatedAt: serverTimestamp(),
-        });
+                                                                                                                                                                                                        TARGET_REACHED_CACHE[campaignId] = true;
 
-        return { status: 'target_met' };
-      }
+                                                                                                                                                                                                                await updateDoc(campaignRef, {
+                                                                                                                                                                                                                          status: 'Completed',
+                                                                                                                                                                                                                                    updatedAt: serverTimestamp(),
+                                                                                                                                                                                                                                            });
 
-      /* ================= 3. EXTRACTION ================= */
+                                                                                                                                                                                                                                                    return { status: 'target_met' };
+                                                                                                                                                                                                                                                          }
 
-      const result = await processDomainExtraction(
-        job.data,
-        nodeIndex
-      );
+                                                                                                                                                                                                                                                                /* ================= 3. EXTRACTION ================= */
 
-      const validEmails = result.emails.filter((e) => e.isValid);
-      const validCount = validEmails.length;
-      const flaggedCount = result.emails.length - validCount;
+                                                                                                                                                                                                                                                                let result;
 
-      /* ================= 4. SKIP IF NO EMAIL ================= */
+                                                                                                                                                                                                                                                                try {
+                                                                                                                                                                                                                                                                  result = await withTimeout(
+                                                                                                                                                                                                                                                                    processDomainExtraction(job.data, nodeIndex),
+                                                                                                                                                                                                                                                                    20000
+                                                                                                                                                                                                                                                                  );
+                                                                                                                                                                                                                                                                } catch {
+                                                                                                                                                                                                                                                                  return { status: 'timeout_skipped' };
+                                                                                                                                                                                                                                                                }
 
-      if (result.status === 'no_emails' || validCount === 0) {
-        return { status: 'no_emails_skipped' };
-      }
+                                                                                                                                                                                                                                                                                                  const validEmails = result.emails.filter((e: { isValid: any; }) => e.isValid);
+                                                                                                                                                                                                                                                                                                        const validCount = validEmails.length;
+                                                                                                                                                                                                                                                                                                              const flaggedCount = result.emails.length - validCount;
 
-      const runRef = doc(
-        firestore,
-        'admins',
-        adminId,
-        'campaigns',
-        campaignId,
-        'runs',
-        runId
-      );
+                                                                                                                                                                                                                                                                                                                    /* ================= 4. SKIP IF NO EMAIL ================= */
 
-      const domainCol = collection(
-        firestore,
-        'admins',
-        adminId,
-        'campaigns',
-        campaignId,
-        'runs',
-        runId,
-        'domains'
-      );
+                                                                                                                                                                                                                                                                                                                          if (result.status === 'no_emails' || validCount === 0) {
+                                                                                                                                                                                                                                                                                                                                  return { status: 'no_emails_skipped' };
+                                                                                                                                                                                                                                                                                                                                        }
 
-      /* ================= 5. BATCH FIRESTORE UPDATE ================= */
+                                                                                                                                                                                                                                                                                                                                              const runRef = doc(
+                                                                                                                                                                                                                                                                                                                                                      firestore,
+                                                                                                                                                                                                                                                                                                                                                              'admins',
+                                                                                                                                                                                                                                                                                                                                                                      adminId,
+                                                                                                                                                                                                                                                                                                                                                                              'campaigns',
+                                                                                                                                                                                                                                                                                                                                                                                      campaignId,
+                                                                                                                                                                                                                                                                                                                                                                                              'runs',
+                                                                                                                                                                                                                                                                                                                                                                                                      runId
+                                                                                                                                                                                                                                                                                                                                                                                                            );
 
-      await Promise.all([
-        updateDoc(runRef, {
-          progressDomainsWithEmails: increment(1),
-          totalEmailsExtracted: increment(result.emails.length),
-          validEmailsExtracted: increment(validCount),
-          flaggedEmailsExtracted: increment(flaggedCount),
-          updatedAt: serverTimestamp(),
-        }),
+                                                                                                                                                                                                                                                                                                                                                                                                                  const domainCol = collection(
+                                                                                                                                                                                                                                                                                                                                                                                                                          firestore,
+                                                                                                                                                                                                                                                                                                                                                                                                                                  'admins',
+                                                                                                                                                                                                                                                                                                                                                                                                                                          adminId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                  'campaigns',
+                                                                                                                                                                                                                                                                                                                                                                                                                                                          campaignId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                  'runs',
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                          runId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  'domains'
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        );
 
-        updateDoc(campaignRef, {
-          totalDomainsFetched: increment(1),
-          totalEmailsExtracted: increment(result.emails.length),
-          validEmailsCount: increment(validCount),
-          flaggedEmailsCount: increment(flaggedCount),
-          updatedAt: serverTimestamp(),
-        }),
-      ]);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              /* ================= 5. BATCH FIRESTORE UPDATE ================= */
 
-      /* ================= 6. STORE DOMAIN ================= */
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    await Promise.all([
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            updateDoc(runRef, {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      progressDomainsWithEmails: increment(1),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                totalEmailsExtracted: increment(result.emails.length),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          validEmailsExtracted: increment(validCount),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    flaggedEmailsExtracted: increment(flaggedCount),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              updatedAt: serverTimestamp(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      }),
 
-      await addDoc(domainCol, {
-        domainName: domain,
-        adminUserId: adminId,
-        campaignId,
-        campaignRunId: runId,
-        emailCount: result.emails.length,
-        status: result.status,
-        pageUrls: result.pagesScanned,
-        metadata: result.metadata,
-        lastScrapedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              updateDoc(campaignRef, {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        totalDomainsFetched: increment(1),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  totalEmailsExtracted: increment(result.emails.length),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            validEmailsCount: increment(validCount),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      flaggedEmailsCount: increment(flaggedCount),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                updatedAt: serverTimestamp(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        }),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ]);
 
-      /* ================= 7. REAL-TIME UPDATE ================= */
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    /* ================= 6. STORE DOMAIN ================= */
 
-      if ((global as any).io) {
-        (global as any).io.to(campaignId).emit('progress-update', {
-          campaignId,
-          domain,
-          emailsFound: validCount,
-          node: result.metadata.apiNode,
-          timestamp: new Date().toISOString(),
-        });
-      }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          await addDoc(domainCol, {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  domainName: domain,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          adminUserId: adminId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  campaignId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          campaignRunId: runId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  emailCount: result.emails.length,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          status: result.status,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  pageUrls: result.pagesScanned,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          metadata: result.metadata,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  lastScrapedAt: serverTimestamp(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          createdAt: serverTimestamp(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  updatedAt: serverTimestamp(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        });
 
-      return result;
-    } catch (error: any) {
-      console.error(
-        `[WORKER ERROR] Job ${job.id}:`,
-        error.message
-      );
-      throw error;
-    }
-  },
-  {
-    connection: redis as any,
-    concurrency: 20,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              /* ================= 7. REAL-TIME UPDATE ================= */
 
-    /* IMPORTANT: prevents overload */
-    limiter: {
-      max: 80,
-      duration: 10000,
-    },
-  }
-);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    if ((global as any).io) {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            (global as any).io.to(campaignId).emit('progress-update', {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      campaignId,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                domain,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          emailsFound: validCount,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    node: result.metadata.apiNode,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              timestamp: new Date().toISOString(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      });
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            }
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  return result;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      } catch (error: any) {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            console.error(
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    `[WORKER ERROR] Job ${job.id}:`,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            error.message
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  );
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        throw error;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              },
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    connection: redis as any,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        concurrency: 20,
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            /* IMPORTANT: prevents overload */
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                limiter: {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      max: 80,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            duration: 10000,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                },
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  );
+
+ 

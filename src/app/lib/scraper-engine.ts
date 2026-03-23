@@ -16,6 +16,10 @@ const SERPER_KEYS = [
   process.env.SERPER_NODE_4_KEY,
 ].filter(Boolean);
 
+/* ================= GLOBAL BROWSER ================= */
+
+let GLOBAL_BROWSER: any = null;
+
 /* ================= TYPES ================= */
 
 export interface ScrapingJob {
@@ -55,6 +59,15 @@ const randomUA = () => {
   ];
   return list[Math.floor(Math.random() * list.length)];
 };
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), ms)
+    ),
+  ]);
+}
 
 /* ================= EMAIL LOGIC ================= */
 
@@ -96,22 +109,62 @@ function decodeCloudflareEmails($: cheerio.CheerioAPI) {
   return emails;
 }
 
-/* ---- social hints ---- */
+/* ---- Obfuscated emails ---- */
+function extractObfuscatedEmails(text: string) {
+  const emails: string[] = [];
+
+  const patterns = [
+    /([a-zA-Z0-9._%+-]+)\s?\[at\]\s?([a-zA-Z0-9.-]+)\s?\[dot\]\s?([a-zA-Z]{2,})/gi,
+    /([a-zA-Z0-9._%+-]+)\s?\(at\)\s?([a-zA-Z0-9.-]+)\s?\(dot\)\s?([a-zA-Z]{2,})/gi,
+    /([a-zA-Z0-9._%+-]+)\s+at\s+([a-zA-Z0-9.-]+)\s+dot\s+([a-zA-Z]{2,})/gi,
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      emails.push(`${match[1]}@${match[2]}.${match[3]}`);
+    }
+  }
+
+  return emails;
+}
+
+/* ---- Base64 emails ---- */
+function extractBase64Emails(text: string) {
+  const emails: string[] = [];
+
+  const base64Regex = /[A-Za-z0-9+/=]{20,}/g;
+  const matches = text.match(base64Regex) || [];
+
+  for (const m of matches) {
+    try {
+      const decoded = Buffer.from(m, 'base64').toString('utf-8');
+      const found = extractEmails(decoded);
+      emails.push(...found);
+    } catch {}
+  }
+
+  return emails;
+}
+
+/* ---- social links ---- */
 function extractSocialLinks($: cheerio.CheerioAPI) {
   const links: string[] = [];
 
   $('a').each((_, el) => {
     const href = $(el).attr('href') || '';
+
     if (
       href.includes('linkedin.com') ||
       href.includes('facebook.com') ||
       href.includes('instagram.com')
     ) {
-      links.push(href);
+      const clean = href.split('?')[0];
+      links.push(clean);
     }
   });
 
-  return links.slice(0, 3);
+  return [...new Set(links)].slice(0, 3);
 }
 
 /* ---- validation ---- */
@@ -131,7 +184,8 @@ async function searchSerper(domain: string, nodeIndex: number) {
 
   for (let i = 0; i < SERPER_KEYS.length; i++) {
     try {
-      const key = SERPER_KEYS[(nodeIndex + i) % SERPER_KEYS.length];
+      const key =
+        SERPER_KEYS[Math.floor(Math.random() * SERPER_KEYS.length)];
 
       const res = await axios.post(
         'https://google.serper.dev/search',
@@ -147,7 +201,7 @@ async function searchSerper(domain: string, nodeIndex: number) {
 
       return {
         links: (res.data.organic || []).map((r: any) => r.link),
-        node: (nodeIndex + i) % SERPER_KEYS.length,
+        node: i,
       };
     } catch {}
   }
@@ -158,46 +212,56 @@ async function searchSerper(domain: string, nodeIndex: number) {
 /* ================= AXIOS SCRAPER ================= */
 
 async function scrapeAxios(url: string) {
-  try {
-    const res = await axios.get(url, {
-      timeout: 7000,
-      headers: { 'User-Agent': randomUA() },
-    });
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await axios.get(url, {
+        timeout: 7000,
+        headers: { 'User-Agent': randomUA() },
+      });
 
-    const $ = cheerio.load(res.data);
+      const $ = cheerio.load(res.data);
 
-    const emails = [
-      ...extractEmails($.text()),
-      ...extractMailto($),
-      ...decodeCloudflareEmails($),
-    ];
+      const emails = [
+        ...extractEmails($.text()),
+        ...extractMailto($),
+        ...decodeCloudflareEmails($),
+        ...extractObfuscatedEmails($.text()),
+        ...extractBase64Emails($.text()),
+      ];
 
-    const socials = extractSocialLinks($);
+      const socials = extractSocialLinks($);
 
-    return { emails, socials };
-  } catch {
-    return { emails: [], socials: [] };
+      return { emails, socials };
+    } catch {
+      if (i === 1) {
+        return { emails: [], socials: [] };
+      }
+    }
   }
+
+  return { emails: [], socials: [] };
 }
 
 /* ================= PLAYWRIGHT ================= */
 
 async function scrapePlaywright(url: string) {
-  let browser;
-
   try {
-    browser = await chromium.launch({ headless: true });
+    if (!GLOBAL_BROWSER) {
+      GLOBAL_BROWSER = await chromium.launch({ headless: true });
+    }
 
-    const page = await browser.newPage();
+    const context = await GLOBAL_BROWSER.newContext();
+    const page = await context.newPage();
+
     await page.goto(url, { timeout: 15000 });
 
     const content = await page.content();
 
+    await context.close();
+
     return extractEmails(content);
   } catch {
     return [];
-  } finally {
-    if (browser) await browser.close();
   }
 }
 
@@ -210,15 +274,11 @@ export async function processDomainExtraction(
   const start = Date.now();
 
   try {
-    /* === SMART BASE URLS === */
-
     const base = [
       `https://${job.domain}`,
       `https://${job.domain}/contact`,
       `https://${job.domain}/about`,
     ];
-
-    /* === SERPER === */
 
     const { links, node } = await searchSerper(job.domain, nodeIndex);
 
@@ -227,25 +287,19 @@ export async function processDomainExtraction(
     let emails: string[] = [];
     let socialLinks: string[] = [];
 
-    /* === SAFE LOOP === */
-
     for (const url of urls) {
       const { emails: e, socials } = await scrapeAxios(url);
 
       emails.push(...e);
       socialLinks.push(...socials);
 
-      await sleep(800 + Math.random() * 1200);
+      await sleep(800 + Math.random() * 1500);
     }
-
-    /* === SOCIAL BONUS SCRAPE === */
 
     for (const s of socialLinks.slice(0, 2)) {
       const { emails: e } = await scrapeAxios(s);
       emails.push(...e);
     }
-
-    /* === PLAYWRIGHT FALLBACK === */
 
     if (emails.length === 0 && job.retryCount < 2) {
       for (const url of urls.slice(0, 2)) {
@@ -253,8 +307,6 @@ export async function processDomainExtraction(
         emails.push(...e);
       }
     }
-
-    /* === CLEAN === */
 
     const unique = [
       ...new Set(
