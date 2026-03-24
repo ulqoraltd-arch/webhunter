@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Header } from "@/components/layout/Header"
-import { Sparkles, Plus, Globe, Tag, Flag, Search, Calendar as CalendarIcon, Zap, Target, X, Loader2, Clock } from "lucide-react"
+import { Sparkles, Plus, Globe, Tag, Flag, Search, Calendar as CalendarIcon, Zap, Target, X, Loader2, Clock, CheckSquare, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -36,7 +36,7 @@ export default function NewCampaignPage() {
   const [isDeploying, setIsDeploying] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState<{shortTailKeywords: string[], longTailKeywords: string[]} | null>(null)
 
-  const [selectedTlds, setSelectedTlds] = useState<string[]>(["com"])
+  const [selectedTlds, setSelectedTlds] = useState<string[]>([])
   const [selectedCategories, setSelectedCategories] = useState<string[]>(["SaaS"])
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["US"])
   const [targetQuota, setTargetQuota] = useState(2000)
@@ -57,7 +57,7 @@ export default function NewCampaignPage() {
   const [countrySearch, setCountrySearch] = useState("")
 
   const [newEntry, setNewEntry] = useState({ tld: "", category: "", countryName: "", countryIso: "" })
-
+  
   useEffect(() => {
     if (!isUserLoading && !user) {
       router.push('/login')
@@ -73,8 +73,11 @@ export default function NewCampaignPage() {
       if (tldSnap.empty) {
         const batch = writeBatch(db)
         TLDS.forEach(t => {
-          const id = t.replace('.', '')
-          batch.set(doc(db, "tlds", id), { name: t, createdAt: serverTimestamp() })
+          const clean = t.replace('.', '')
+          batch.set(doc(db, "tlds", clean), { 
+            name: clean, 
+            createdAt: serverTimestamp() 
+          })
         })
         await batch.commit()
       }
@@ -112,15 +115,24 @@ export default function NewCampaignPage() {
 
   const handleAiSuggest = async () => {
     if (!query.trim() && keywords.length === 0) {
-      toast({ title: "Query required", description: "Enter a base keyword for AI analysis.", variant: "destructive" })
+      toast({ 
+        title: "Query required", 
+        description: "Enter at least one keyword.", 
+        variant: "destructive" 
+      })
       return
     }
     setIsSuggesting(true)
     try {
       const result = await suggestKeywordsForCampaign({ query: query || keywords[0] })
       setAiSuggestions(result)
-    } catch (err) {
-      toast({ title: "AI Neural Blockage", description: "Suggestion engine timed out.", variant: "destructive" })
+    } catch (err: any) {
+      console.error("AI ERROR:", err)
+      toast({ 
+        title: "AI Error", 
+        description: err?.message || "Failed to fetch suggestions", 
+        variant: "destructive" 
+      })
     } finally {
       setIsSuggesting(false)
     }
@@ -131,12 +143,14 @@ export default function NewCampaignPage() {
   }
 
   const handleQuickAdd = async (type: 'tld' | 'category' | 'country') => {
-    if (!user) return
-    const id = Date.now().toString()
+    if (!user || !db) return
     if (type === 'tld' && newEntry.tld) {
-      const formatted = newEntry.tld.startsWith('.') ? newEntry.tld : `.${newEntry.tld}`
-      const customId = formatted.replace('.', '')
-      await setDoc(doc(db, "tlds", customId), { name: formatted, createdAt: serverTimestamp(), adminUserId: user.uid })
+      const clean = newEntry.tld.replace('.', '').toLowerCase()
+      await setDoc(doc(db, "tlds", clean), { 
+        name: clean, 
+        createdAt: serverTimestamp(), 
+        adminUserId: user.uid 
+      })
       setNewEntry({ ...newEntry, tld: "" })
     } else if (type === 'category' && newEntry.category) {
       const customId = newEntry.category.toLowerCase().replace(/\s/g, '-')
@@ -151,9 +165,22 @@ export default function NewCampaignPage() {
   }
 
   const handleDeploy = async () => {
-    if (!user) return
-    if (!campaignName || keywords.length === 0) {
-      toast({ title: "Configuration Invalid", description: "Descriptor and Search Cluster are required.", variant: "destructive" })
+    if (!user || !db) return
+    
+    const missing = []
+    if (!campaignName.trim()) missing.push("Engine Descriptor")
+    if (keywords.length === 0) missing.push("Search Keywords (Press Enter after typing)")
+    if (selectedTlds.length === 0) missing.push("TLDs")
+    if (selectedCategories.length === 0) missing.push("Verticals")
+    if (selectedCountries.length === 0) missing.push("Regions")
+    if (mode === 'scheduled' && !scheduledDate) missing.push("Scheduled Time")
+
+    if (missing.length > 0) {
+      toast({
+        title: "Configuration Incomplete",
+        description: `Please address the following: ${missing.join(", ")}`,
+        variant: "destructive"
+      })
       return
     }
 
@@ -205,9 +232,14 @@ export default function NewCampaignPage() {
 
       toast({ title: "Deployment Successful", description: mode === 'instant' ? "Extraction clusters are initializing." : "Campaign has been queued." })
       setTimeout(() => router.push('/dashboard'), 2500)
-    } catch (err) {
+    } catch (err: any) {
+      console.error("DEPLOY ERROR:", err)
       setIsDeploying(false)
-      toast({ title: "Deployment Failed", description: "Handshake rejected.", variant: "destructive" })
+      toast({ 
+        title: "Deployment Failed", 
+        description: err?.message || "Unknown error", 
+        variant: "destructive" 
+      })
     }
   }
 
@@ -265,7 +297,7 @@ export default function NewCampaignPage() {
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search Keywords</Label>
                     <div className="relative">
                       <Input 
-                        placeholder="Enter seed keyword..." 
+                        placeholder="Enter seed keyword and press ENTER..." 
                         className="bg-secondary/30 border-white/10 pr-14 h-14 text-lg"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -322,7 +354,7 @@ export default function NewCampaignPage() {
                           <X className="ml-3 h-3.5 w-3.5 cursor-pointer opacity-50 group-hover:opacity-100" onClick={() => setKeywords(keywords.filter((_, idx) => idx !== i))} />
                         </Badge>
                       ))}
-                      {keywords.length === 0 && <p className="text-xs text-muted-foreground italic p-2">Add base keywords to initialize discovery...</p>}
+                      {keywords.length === 0 && <p className="text-xs text-muted-foreground italic p-2">Add base keywords to initialize discovery (Press Enter after typing)...</p>}
                     </div>
                   </div>
                 </CardContent>
@@ -430,14 +462,30 @@ export default function NewCampaignPage() {
                   </div>
                   <ScrollArea className="h-[200px] pr-4">
                     <div className="space-y-1">
-                      {dbTlds?.filter(t => t.name.includes(tldSearch)).map(tld => (
+                      <div className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-white/5 group border-b border-white/5 mb-2">
+                        <Checkbox 
+                          id="tld-all"
+                          checked={dbTlds && dbTlds.length > 0 && selectedTlds.length === dbTlds.length}
+                          onCheckedChange={(checked) => {
+                            if (checked) setSelectedTlds(dbTlds?.map(t => t.name) || [])
+                            else setSelectedTlds([])
+                          }} 
+                        />
+                        <label htmlFor="tld-all" className="text-sm font-bold text-primary cursor-pointer">SELECT ALL TLDS</label>
+                      </div>
+                      {dbTlds?.filter(t => 
+                        t.name.toLowerCase().includes(tldSearch.toLowerCase())
+                      ).map(tld => (
                         <div key={tld.id} className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-white/5 group">
                           <Checkbox 
                             id={`tld-${tld.id}`}
-                            checked={selectedTlds.includes(tld.name.replace('.', ''))} 
+                            checked={selectedTlds.includes(tld.name)}
                             onCheckedChange={() => {
-                              const clean = tld.name.replace('.', '')
-                              setSelectedTlds(prev => prev.includes(clean) ? prev.filter(t => t !== clean) : [...prev, clean])
+                              setSelectedTlds(prev => 
+                                prev.includes(tld.name) 
+                                  ? prev.filter(t => t !== tld.name) 
+                                  : [...prev, tld.name]
+                              )
                             }} 
                           />
                           <label htmlFor={`tld-${tld.id}`} className="text-sm text-muted-foreground group-hover:text-white cursor-pointer transition-colors font-code">{tld.name}</label>
@@ -474,6 +522,17 @@ export default function NewCampaignPage() {
                   </div>
                   <ScrollArea className="h-[200px] pr-4">
                     <div className="space-y-1">
+                      <div className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-white/5 group border-b border-white/5 mb-2">
+                        <Checkbox 
+                          id="cat-all"
+                          checked={dbCats && dbCats.length > 0 && selectedCategories.length === dbCats.length}
+                          onCheckedChange={(checked) => {
+                            if (checked) setSelectedCategories(dbCats?.map(c => c.name) || [])
+                            else setSelectedCategories([])
+                          }} 
+                        />
+                        <label htmlFor="cat-all" className="text-sm font-bold text-primary cursor-pointer">SELECT ALL VERTICALS</label>
+                      </div>
                       {dbCats?.filter(c => c.name.toLowerCase().includes(categorySearch.toLowerCase())).map(cat => (
                         <div key={cat.id} className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-white/5 group">
                           <Checkbox 
@@ -514,6 +573,17 @@ export default function NewCampaignPage() {
                   </div>
                   <ScrollArea className="h-[200px] pr-4">
                     <div className="space-y-1">
+                      <div className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-white/5 group border-b border-white/5 mb-2">
+                        <Checkbox 
+                          id="country-all"
+                          checked={dbCountries && dbCountries.length > 0 && selectedCountries.length === dbCountries.length}
+                          onCheckedChange={(checked) => {
+                            if (checked) setSelectedCountries(dbCountries?.map(c => c.isoCode) || [])
+                            else setSelectedCountries([])
+                          }} 
+                        />
+                        <label htmlFor="country-all" className="text-sm font-bold text-primary cursor-pointer">SELECT ALL REGIONS</label>
+                      </div>
                       {dbCountries?.filter(c => c.name.toLowerCase().includes(countrySearch.toLowerCase())).map(country => (
                         <div key={country.id} className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-white/5 group">
                           <Checkbox 
