@@ -1,4 +1,3 @@
-
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
@@ -32,19 +31,19 @@ app.prepare().then(() => {
 
   // Socket.IO logic
   io.on('connection', (socket) => {
-    console.log('[SOCKET] Client connected:', socket.id);
+    console.log('[SOCKET] Client Linked:', socket.id);
 
     socket.on('join-campaign', (campaignId) => {
       socket.join(campaignId);
-      console.log(`[SOCKET] Client joined campaign room: ${campaignId}`);
+      console.log(`[SOCKET] Node joined room: ${campaignId}`);
     });
 
     socket.on('disconnect', () => {
-      console.log('[SOCKET] Client disconnected');
+      console.log('[SOCKET] Node disconnected');
     });
   });
 
-  // Make IO accessible globally if needed (for internal triggers)
+  // Make IO accessible globally for BullMQ workers
   global.io = io;
 
   httpServer.once('error', (err) => {
@@ -53,6 +52,6 @@ app.prepare().then(() => {
   });
 
   httpServer.listen(port, () => {
-    console.log(`> Ready on http://${hostname}:${port}`);
+    console.log(`> Command Center Online: http://${hostname}:${port}`);
   });
 });

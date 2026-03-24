@@ -1,4 +1,3 @@
-
 "use client"
 
 import Link from "next/link"
@@ -13,7 +12,8 @@ import {
   LogOut,
   Zap,
   Loader2,
-  Terminal
+  Terminal,
+  Layers
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser, useFirestore, useDoc, useMemoFirebase } from "@/firebase"
@@ -27,8 +27,9 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'canViewDashboard' },
-  { name: 'New Campaign', href: '/campaigns/new', icon: PlusCircle, permission: 'canCreateCampaigns' },
-  { name: 'Results', href: '/results', icon: Database, permission: 'canAccessResults' },
+  { name: 'Campaigns', href: '/campaigns', icon: Layers, permission: 'canViewDashboard' },
+  { name: 'New Mission', href: '/campaigns/new', icon: PlusCircle, permission: 'canCreateCampaigns' },
+  { name: 'Repository', href: '/results', icon: Database, permission: 'canAccessResults' },
   { name: 'Validation', href: '/validation', icon: ShieldCheck, permission: 'canRunValidation' },
   { name: 'Exports', href: '/export', icon: Download, permission: 'canExportData' },
   { name: 'Debug Terminal', href: '/debug', icon: Terminal, superOnly: true },
