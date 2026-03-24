@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { useFirestore, useAuth } from "@/firebase"
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore"
 import { signInAnonymously } from "firebase/auth"
 import { FuturisticLoader } from "@/components/ui/futuristic-loader"
 
@@ -118,6 +119,7 @@ export default function LoginPage() {
       const configSnap = await getDoc(configRef)
 
       if (!configSnap.exists()) {
+        // Initialize Root System
         await setDoc(configRef, {
           masterPassword: password,
           isInitialized: true,
@@ -137,20 +139,16 @@ export default function LoginPage() {
         toast({ title: "Master Key Established", description: "Encryption protocols synchronized." })
         setTimeout(() => router.push('/dashboard'), 4000)
       } else {
-        if (password === configSnap.data().masterPassword) {
+        // Validate against Master Password or individual Admin passkeys
+        const masterPass = configSnap.data().masterPassword
+        const isAdminQuery = query(collection(db, "admins"), where("passkey", "==", password))
+        const adminSnap = await getDocs(isAdminQuery)
+        
+        const isAuthorized = (password === masterPass) || !adminSnap.empty
+
+        if (isAuthorized) {
           toast({ title: "Access Granted", description: "Decrypting session tokens..." })
-          const adminRef = doc(db, "admins", uid)
-          const adminSnap = await getDoc(adminRef)
-          if (!adminSnap.exists()) {
-            await setDoc(adminRef, {
-              id: uid,
-              name: "Authenticated Personnel",
-              role: "Analyst",
-              adminUserId: uid,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            })
-          }
+          // Removed auto-addition of user record here to satisfy "dont add it as user"
           setTimeout(() => router.push('/dashboard'), 4000)
         } else {
           setIsLoading(false)
