@@ -14,6 +14,7 @@ import { collection, deleteDoc, doc, query, orderBy, updateDoc, serverTimestamp 
 import { formatDistanceToNow, format } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
+import { cn } from "@/lib/utils"
 
 export default function CampaignManagementPage() {
   const router = useRouter()
@@ -188,7 +189,7 @@ export default function CampaignManagementPage() {
                 ))}
                 {(!filteredCampaigns || filteredCampaigns.length === 0) && !isLoading && (
                   <div className="col-span-full py-20 text-center space-y-4">
-                    < ban className="h-16 w-16 mx-auto opacity-10" />
+                    < Ban className="h-16 w-16 mx-auto opacity-10" />
                     <p className="text-muted-foreground font-black uppercase tracking-widest opacity-40">No active clusters in registry.</p>
                   </div>
                 )}
