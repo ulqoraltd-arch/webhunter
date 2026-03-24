@@ -9,7 +9,7 @@ import axios from 'axios';
 export async function POST(req: Request) {
   try {
     const { query } = await req.json();
-    const apiKey = process.env.SERPER_API_KEY;
+    const apiKey = process.env.SERPER_NODE_1_KEY;
 
     if (!apiKey) {
       return NextResponse.json({ error: 'SERPER_API_KEY is not configured in .env' }, { status: 500 });
