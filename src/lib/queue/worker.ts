@@ -37,41 +37,39 @@ export const scrapingWorker = new Worker(
     const nodeIndex = Number(job.id || 0) % 4;
 
     const campaignRef = doc(firestore, 'admins', adminId, 'campaigns', campaignId);
+    const runRef = doc(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId);
 
     try {
+      // 1. Initial Reporting (Move the "Nodes Dispatched" counter)
+      if ((global as any).io) {
+        (global as any).io.to(campaignId).emit('campaign:start', { campaignId, domain });
+      }
+
+      await updateDoc(runRef, {
+        progressUrlsProcessed: increment(1),
+        updatedAt: serverTimestamp(),
+      });
+
       if (TARGET_REACHED_CACHE[campaignId]) {
         return { status: 'skipped_target_met' };
       }
 
       const campaignSnap = await getDoc(campaignRef);
-      if (!campaignSnap.exists()) {
-        return { status: 'campaign_not_found' };
-      }
+      if (!campaignSnap.exists()) return { status: 'campaign_not_found' };
 
       const campaignData = campaignSnap.data();
 
       // Check if target is met
       if (campaignData.validEmailsCount >= campaignData.targetEmailCount) {
-        console.log(`[STOP] Target met for ${campaignId}`);
         TARGET_REACHED_CACHE[campaignId] = true;
-
-        await updateDoc(campaignRef, {
-          status: 'Completed',
-          updatedAt: serverTimestamp(),
-        });
-
+        await updateDoc(campaignRef, { status: 'Completed', updatedAt: serverTimestamp() });
         if ((global as any).io) {
           (global as any).io.to(campaignId).emit('campaign:completed', { campaignId });
         }
-
         return { status: 'target_met' };
       }
 
-      // Start Extraction
-      if ((global as any).io) {
-        (global as any).io.to(campaignId).emit('campaign:start', { campaignId, domain });
-      }
-
+      // 2. Extraction Execution
       let result;
       try {
         result = await withTimeout(
@@ -90,13 +88,11 @@ export const scrapingWorker = new Worker(
         return { status: 'no_emails_skipped' };
       }
 
-      const runRef = doc(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId);
       const domainCol = collection(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId, 'domains');
 
-      // Atomic UI Updates
+      // 3. Atomic Updates for Yield
       await Promise.all([
         updateDoc(runRef, {
-          progressUrlsProcessed: increment(1),
           progressDomainsWithEmails: increment(1),
           totalEmailsExtracted: increment(result.emails.length),
           validEmailsExtracted: increment(validCount),
@@ -112,7 +108,7 @@ export const scrapingWorker = new Worker(
         }),
       ]);
 
-      // Persistence
+      // 4. Persistence
       await addDoc(domainCol, {
         domainName: domain,
         adminUserId: adminId,
@@ -127,7 +123,7 @@ export const scrapingWorker = new Worker(
         updatedAt: serverTimestamp(),
       });
 
-      // Real-time Update
+      // 5. Final Socket Emission for success
       if ((global as any).io) {
         (global as any).io.to(campaignId).emit('campaign:progress', {
           campaignId,
