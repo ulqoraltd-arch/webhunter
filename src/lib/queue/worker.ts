@@ -1,6 +1,7 @@
+
 /**
- * PRODUCTION WORKER HUB
- * Manages Discovery (Serper) and Scraping (Axios) queues.
+ * PRODUCTION WORKER HUB (AXIOS + CHEERIO ONLY)
+ * Optimized for high-throughput cross-process telemetry via Redis.
  */
 import { Worker, Job } from 'bullmq';
 import { DISCOVERY_QUEUE_NAME, SCRAPING_QUEUE_NAME, scrapingQueue, discoveryQueue } from './config';
@@ -19,6 +20,21 @@ import { redis } from '@/lib/redis';
 
 const { firestore } = initializeFirebase();
 
+/**
+ * Publishes telemetry to the Redis bridge for Socket.IO broadcasting.
+ */
+async function emitTelemetry(campaignId: string, event: string, payload: any) {
+  try {
+    await redis.publish('campaign-telemetry', JSON.stringify({
+      campaignId,
+      event,
+      payload
+    }));
+  } catch (err: any) {
+    console.error('[WORKER TELEMETRY ERROR]:', err.message);
+  }
+}
+
 /* ================= DISCOVERY WORKER ================= */
 
 export const discoveryWorker = new Worker(
@@ -27,19 +43,24 @@ export const discoveryWorker = new Worker(
     const { campaignId, adminId, runId, keyword, start, targetCount } = job.data;
 
     try {
-      // Emit pagination log
-      if ((global as any).io) {
-        (global as any).io.to(campaignId).emit('campaign:progress', {
-          domain: `[SERP Page ${Math.floor(start/10) + 1}]`,
-          emailsFound: 0,
-          node: `Discovering targets for: ${keyword}`,
-        });
-      }
+      console.log(`[DISCOVERY] Processing keyword: ${keyword} (start: ${start})`);
+
+      // Emit pagination status
+      await emitTelemetry(campaignId, 'campaign:progress', {
+        domain: `[Searching Page ${Math.floor(start/10) + 1}]`,
+        emailsFound: 0,
+        node: `Discovery Node: ${keyword}`,
+      });
 
       // 1. Fetch Serper Results
       const { domains, hasMore } = await discoverDomains(keyword, start);
 
-      // 2. Queue Scraping Jobs for each domain
+      if (domains.length === 0) {
+        console.log(`[DISCOVERY] No results found for: ${keyword}`);
+        return { discovered: 0 };
+      }
+
+      // 2. Queue Scraping Jobs for each unique domain
       for (const domain of domains) {
         await scrapingQueue.add(`scrape-${domain}`, {
           domain,
@@ -50,16 +71,16 @@ export const discoveryWorker = new Worker(
         });
       }
 
-      // 3. Check if we need more domains
+      // 3. Stop Condition check
       const campaignSnap = await getDoc(doc(firestore, 'admins', adminId, 'campaigns', campaignId));
-      const currentCount = campaignSnap.data()?.validEmailsCount || 0;
+      const currentDomainsWithEmails = campaignSnap.data()?.totalDomainsFetched || 0;
 
-      if (hasMore && currentCount < targetCount) {
+      if (hasMore && currentDomainsWithEmails < targetCount) {
         // Queue next page with delay to prevent rate limit
         await discoveryQueue.add(`discover-${keyword}-${start + 10}`, {
           ...job.data,
           start: start + 10,
-        }, { delay: 2000 });
+        }, { delay: 3000 });
       }
 
       return { discovered: domains.length };
@@ -82,57 +103,67 @@ export const scrapingWorker = new Worker(
     const runRef = doc(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId);
 
     try {
-      // Atomic Stop Condition check
+      // 1. Global Quota check
       const campSnap = await getDoc(campaignRef);
       if (!campSnap.exists()) return { status: 'aborted' };
-      if (campSnap.data().validEmailsCount >= targetCount) {
-        await updateDoc(campaignRef, { status: 'Completed' });
-        if ((global as any).io) (global as any).io.to(campaignId).emit('campaign:completed', { campaignId });
+      
+      const currentYield = campSnap.data().totalDomainsFetched || 0;
+      if (currentYield >= targetCount) {
+        if (campSnap.data().status !== 'Completed') {
+          await updateDoc(campaignRef, { status: 'Completed', updatedAt: serverTimestamp() });
+          await emitTelemetry(campaignId, 'campaign:completed', { campaignId });
+        }
         return { status: 'target_met' };
       }
 
-      // 1. Dispatch Heartbeat
+      // 2. Report Node Attempt
+      await emitTelemetry(campaignId, 'campaign:progress', {
+        domain,
+        emailsFound: 0,
+        node: 'Axios Scanning...',
+      });
+
+      // 3. Update Run Dispatched Metrics
       await updateDoc(runRef, { progressUrlsProcessed: increment(1), updatedAt: serverTimestamp() });
 
-      // 2. Perform Axios Extraction
+      // 4. Perform Axios Extraction (Fast)
       const result = await scrapeDomain(domain);
 
       if (result.status === 'no_emails' || result.emails.length === 0) {
         return { status: 'skipped_no_emails' };
       }
 
-      // 3. Success -> Atomic Yield Update
-      const validCount = result.emails.length;
+      // 5. SUCCESS -> Target Yield Update
+      const emailCount = result.emails.length;
       
       await Promise.all([
         updateDoc(runRef, {
           progressDomainsWithEmails: increment(1),
-          totalEmailsExtracted: increment(validCount),
-          validEmailsExtracted: increment(validCount),
+          totalEmailsExtracted: increment(emailCount),
+          validEmailsExtracted: increment(emailCount),
           updatedAt: serverTimestamp(),
         }),
         updateDoc(campaignRef, {
-          totalDomainsFetched: increment(1),
-          totalEmailsExtracted: increment(validCount),
-          validEmailsCount: increment(validCount),
+          totalDomainsFetched: increment(1), // THIS tracks the 1000 domain quota
+          totalEmailsExtracted: increment(emailCount),
+          validEmailsCount: increment(emailCount),
           updatedAt: serverTimestamp(),
         }),
       ]);
 
-      // 4. Persistence
+      // 6. Persistence
       const domainCol = collection(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId, 'domains');
       const domainDoc = await addDoc(domainCol, {
         domainName: domain,
         adminUserId: adminId,
         campaignId,
         campaignRunId: runId,
-        emailCount: validCount,
+        emailCount,
         status: 'success',
         pageUrls: result.pagesScanned,
         createdAt: serverTimestamp(),
       });
 
-      // 5. Save individual emails
       const emailCol = collection(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId, 'domains', domainDoc.id, 'emails');
       for (const email of result.emails) {
         await addDoc(emailCol, {
@@ -143,16 +174,14 @@ export const scrapingWorker = new Worker(
         });
       }
 
-      // 6. Socket.IO Telemetry
-      if ((global as any).io) {
-        (global as any).io.to(campaignId).emit('campaign:progress', {
-          domain,
-          emailsFound: validCount,
-          node: 'Axios Node Active',
-        });
-      }
+      // 7. Stream Yield Telemetry
+      await emitTelemetry(campaignId, 'campaign:progress', {
+        domain,
+        emailsFound: emailCount,
+        node: 'Yield Found',
+      });
 
-      return { status: 'success', emails: validCount };
+      return { status: 'success', emails: emailCount };
     } catch (error: any) {
       console.error(`[SCRAPER ERROR] ${domain}:`, error.message);
       throw error;
@@ -160,7 +189,9 @@ export const scrapingWorker = new Worker(
   },
   { 
     connection: redis as any, 
-    concurrency: 8,
-    limiter: { max: 10, duration: 1000 }
+    concurrency: 10, // Optimized for VPS
+    limiter: { max: 20, duration: 1000 }
   }
 );
+
+console.log('>>> Workers Operational: Discovery & Scraping listening on Redis.');

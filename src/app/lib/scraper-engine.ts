@@ -1,6 +1,7 @@
+
 /**
  * WebHunter Pro - ULTRA STABLE ENGINE (AXIOS + SERPER)
- * Removed Playwright. Focused on speed, stability, and pagination.
+ * Removed Playwright. Focused on raw speed and VPS stability.
  */
 
 import axios from 'axios';
@@ -44,11 +45,10 @@ const randomUA = () => {
 /* ================= DISCOVERY (SERPER) ================= */
 
 export async function discoverDomains(keyword: string, start: number = 0): Promise<SerperResult> {
-  // Round Robin Key Rotation
   const apiKey = SERPER_KEYS[keyIndex % SERPER_KEYS.length];
   keyIndex++;
 
-  if (!apiKey) throw new Error('No Serper API keys configured');
+  if (!apiKey) throw new Error('No Serper API keys configured in .env');
 
   try {
     const response = await axios.post(
@@ -59,14 +59,19 @@ export async function discoverDomains(keyword: string, start: number = 0): Promi
           'X-API-KEY': apiKey,
           'Content-Type': 'application/json',
         },
-        timeout: 10000,
+        timeout: 15000,
       }
     );
 
     const results = response.data.organic || [];
     const domains = results.map((item: any) => {
       try {
-        return new URL(item.link).hostname;
+        const url = new URL(item.link);
+        // Exclude big platforms to increase efficiency
+        if (url.hostname.includes('linkedin.com') || url.hostname.includes('facebook.com') || url.hostname.includes('twitter.com') || url.hostname.includes('instagram.com')) {
+          return null;
+        }
+        return url.hostname;
       } catch {
         return null;
       }
@@ -77,7 +82,7 @@ export async function discoverDomains(keyword: string, start: number = 0): Promi
       hasMore: results.length >= 10,
     };
   } catch (err: any) {
-    console.error(`[SERPER ERROR] Key Node ${keyIndex % SERPER_KEYS.length}:`, err.message);
+    console.error(`[SERPER ERROR] Node ${keyIndex % SERPER_KEYS.length}:`, err.message);
     throw err;
   }
 }
@@ -90,6 +95,7 @@ function extractEmails(text: string): string[] {
 }
 
 export async function scrapeDomain(domain: string): Promise<ExtractionResult> {
+  // Strategy: Try home page, then common contact points
   const pagesToTry = [
     `https://${domain}`,
     `https://${domain}/contact`,
@@ -102,34 +108,39 @@ export async function scrapeDomain(domain: string): Promise<ExtractionResult> {
   for (const url of pagesToTry) {
     try {
       const res = await axios.get(url, {
-        timeout: 8000,
+        timeout: 10000,
         headers: { 'User-Agent': randomUA() },
         maxRedirects: 3,
+        validateStatus: (status) => status < 400,
       });
 
       const $ = cheerio.load(res.data);
-      // Remove noise
-      $('script, style, iframe, noscript').remove();
+      // Clean up the DOM to improve regex accuracy
+      $('script, style, iframe, noscript, header, footer').remove();
       
-      const found = extractEmails($.text());
+      const text = $.text();
+      const found = extractEmails(text);
       allEmails.push(...found);
       scanned.push(url);
 
-      if (allEmails.length > 3) break; // Efficiency stop
-      await sleep(1000); // VPS Politeness
+      // Efficiency: If we find 3+ emails on home, don't bother crawling deeper
+      if (allEmails.length >= 2) break;
+      
+      await sleep(1500); // Politeness delay
     } catch {
       continue;
     }
   }
 
-  const unique = [...new Set(allEmails)].filter(e => {
-    const lower = e.toLowerCase();
-    return !lower.endsWith('.png') && !lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && e.length < 100;
+  // Final filtering of extraction artifacts
+  const cleanEmails = [...new Set(allEmails)].filter(e => {
+    const l = e.toLowerCase();
+    return !l.endsWith('.png') && !l.endsWith('.jpg') && !l.endsWith('.jpeg') && !l.endsWith('.gif') && e.length < 80;
   });
 
   return {
-    emails: unique,
+    emails: cleanEmails,
     pagesScanned: scanned,
-    status: unique.length > 0 ? 'success' : 'no_emails',
+    status: cleanEmails.length > 0 ? 'success' : 'no_emails',
   };
 }
