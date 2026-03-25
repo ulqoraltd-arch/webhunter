@@ -1,13 +1,10 @@
 /**
- * WebHunter Pro - ULTRA FREE ENGINE (ADVANCED)
- * Smart scraping + hidden email decode + social hints
+ * WebHunter Pro - ULTRA STABLE ENGINE (AXIOS + SERPER)
+ * Removed Playwright. Focused on speed, stability, and pagination.
  */
 
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { chromium } from 'playwright';
-
-/* ================= CONFIG ================= */
 
 const SERPER_KEYS = [
   process.env.SERPER_NODE_1_KEY,
@@ -16,35 +13,19 @@ const SERPER_KEYS = [
   process.env.SERPER_NODE_4_KEY,
 ].filter(Boolean);
 
-/* ================= GLOBAL BROWSER ================= */
-
-let GLOBAL_BROWSER: any = null;
+let keyIndex = 0;
 
 /* ================= TYPES ================= */
 
-export interface ScrapingJob {
-  domain: string;
-  campaignId: string;
-  adminId: string;
-  runId: string;
-  retryCount: number;
-}
-
-export interface ExtractedEmail {
-  address: string;
-  isValid: boolean;
-  validationStatus: 'valid' | 'flagged_syntax';
+export interface SerperResult {
+  domains: string[];
+  hasMore: boolean;
 }
 
 export interface ExtractionResult {
-  emails: ExtractedEmail[];
+  emails: string[];
   pagesScanned: string[];
-  status: 'success' | 'failed' | 'no_emails';
-  metadata: {
-    apiNode: string;
-    speed: string;
-    method: string;
-  };
+  status: 'success' | 'no_emails' | 'failed';
 }
 
 /* ================= HELPERS ================= */
@@ -60,19 +41,19 @@ const randomUA = () => {
   return list[Math.floor(Math.random() * list.length)];
 };
 
-/* ================= DISCOVERY ================= */
+/* ================= DISCOVERY (SERPER) ================= */
 
-export async function discoverDomains(keywords: string[], limitCount: number = 100) {
-  const domains: string[] = [];
-  const keyword = keywords[Math.floor(Math.random() * keywords.length)];
-  const apiKey = SERPER_KEYS[Math.floor(Math.random() * SERPER_KEYS.length)];
+export async function discoverDomains(keyword: string, start: number = 0): Promise<SerperResult> {
+  // Round Robin Key Rotation
+  const apiKey = SERPER_KEYS[keyIndex % SERPER_KEYS.length];
+  keyIndex++;
 
-  if (!apiKey) return [];
+  if (!apiKey) throw new Error('No Serper API keys configured');
 
   try {
     const response = await axios.post(
       'https://google.serper.dev/search',
-      { q: keyword, num: Math.min(limitCount, 100) },
+      { q: keyword, num: 10, start },
       {
         headers: {
           'X-API-KEY': apiKey,
@@ -83,129 +64,72 @@ export async function discoverDomains(keywords: string[], limitCount: number = 1
     );
 
     const results = response.data.organic || [];
-    for (const item of results) {
+    const domains = results.map((item: any) => {
       try {
-        const url = new URL(item.link);
-        if (!domains.includes(url.hostname)) {
-          domains.push(url.hostname);
-        }
-      } catch {}
-    }
-  } catch (err) {
-    console.error('[DISCOVERY ERROR]', err);
-  }
-
-  return domains;
-}
-
-/* ================= EMAIL LOGIC ================= */
-
-function extractEmails(text: string) {
-  return text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
-}
-
-function extractMailto($: cheerio.CheerioAPI) {
-  const emails: string[] = [];
-  $('a[href^="mailto:"]').each((_, el) => {
-    const href = $(el).attr('href');
-    if (href) emails.push(href.replace('mailto:', '').split('?')[0]);
-  });
-  return emails;
-}
-
-function decodeCloudflareEmails($: cheerio.CheerioAPI) {
-  const emails: string[] = [];
-  $('[data-cfemail]').each((_, el) => {
-    const encoded = $(el).attr('data-cfemail');
-    if (!encoded) return;
-    try {
-      let email = '';
-      const r = parseInt(encoded.substr(0, 2), 16);
-      for (let n = 2; n < encoded.length; n += 2) {
-        const code = parseInt(encoded.substr(n, 2), 16) ^ r;
-        email += String.fromCharCode(code);
+        return new URL(item.link).hostname;
+      } catch {
+        return null;
       }
-      emails.push(email);
-    } catch {}
-  });
-  return emails;
-}
+    }).filter(Boolean);
 
-function extractSocialLinks($: cheerio.CheerioAPI) {
-  const links: string[] = [];
-  $('a').each((_, el) => {
-    const href = $(el).attr('href') || '';
-    if (href.includes('linkedin.com') || href.includes('facebook.com') || href.includes('instagram.com')) {
-      links.push(href.split('?')[0]);
-    }
-  });
-  return [...new Set(links)].slice(0, 3);
-}
-
-function validateEmail(email: string): ExtractedEmail {
-  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  return {
-    address: email,
-    isValid: ok,
-    validationStatus: ok ? 'valid' : 'flagged_syntax',
-  };
-}
-
-/* ================= AXIOS SCRAPER ================= */
-
-async function scrapeAxios(url: string) {
-  try {
-    const res = await axios.get(url, {
-      timeout: 8000,
-      headers: { 'User-Agent': randomUA() },
-    });
-    const $ = cheerio.load(res.data);
-    const emails = [
-      ...extractEmails($.text()),
-      ...extractMailto($),
-      ...decodeCloudflareEmails($),
-    ];
-    return { emails, socials: extractSocialLinks($) };
-  } catch {
-    return { emails: [], socials: [] };
+    return {
+      domains: [...new Set(domains as string[])],
+      hasMore: results.length >= 10,
+    };
+  } catch (err: any) {
+    console.error(`[SERPER ERROR] Key Node ${keyIndex % SERPER_KEYS.length}:`, err.message);
+    throw err;
   }
 }
 
-/* ================= MAIN ================= */
+/* ================= EXTRACTION (AXIOS) ================= */
 
-export async function processDomainExtraction(
-  job: ScrapingJob,
-  nodeIndex: number
-): Promise<ExtractionResult> {
-  const start = Date.now();
-  const base = [
-    `https://${job.domain}`,
-    `https://${job.domain}/contact`,
-    `https://${job.domain}/about`,
+function extractEmails(text: string): string[] {
+  const regex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/g;
+  return text.match(regex) || [];
+}
+
+export async function scrapeDomain(domain: string): Promise<ExtractionResult> {
+  const pagesToTry = [
+    `https://${domain}`,
+    `https://${domain}/contact`,
+    `https://${domain}/about`,
   ];
 
   let allEmails: string[] = [];
-  let pagesScanned: string[] = [];
+  let scanned: string[] = [];
 
-  for (const url of base) {
-    const { emails, socials } = await scrapeAxios(url);
-    allEmails.push(...emails);
-    pagesScanned.push(url);
-    if (allEmails.length > 5) break;
-    await sleep(500);
+  for (const url of pagesToTry) {
+    try {
+      const res = await axios.get(url, {
+        timeout: 8000,
+        headers: { 'User-Agent': randomUA() },
+        maxRedirects: 3,
+      });
+
+      const $ = cheerio.load(res.data);
+      // Remove noise
+      $('script, style, iframe, noscript').remove();
+      
+      const found = extractEmails($.text());
+      allEmails.push(...found);
+      scanned.push(url);
+
+      if (allEmails.length > 3) break; // Efficiency stop
+      await sleep(1000); // VPS Politeness
+    } catch {
+      continue;
+    }
   }
 
-  const unique = [...new Set(allEmails)].filter(e => e.length < 100 && !e.includes('.png') && !e.includes('.jpg'));
-  const validated = unique.map(validateEmail);
+  const unique = [...new Set(allEmails)].filter(e => {
+    const lower = e.toLowerCase();
+    return !lower.endsWith('.png') && !lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && e.length < 100;
+  });
 
   return {
-    emails: validated,
-    pagesScanned,
-    status: validated.length ? 'success' : 'no_emails',
-    metadata: {
-      apiNode: `Node-${nodeIndex + 1}`,
-      speed: `${((Date.now() - start) / 1000).toFixed(2)}s`,
-      method: 'axios-cheerio',
-    },
+    emails: unique,
+    pagesScanned: scanned,
+    status: unique.length > 0 ? 'success' : 'no_emails',
   };
 }

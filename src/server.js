@@ -29,27 +29,15 @@ app.prepare().then(() => {
     }
   });
 
-  // Socket.IO logic
   io.on('connection', (socket) => {
-    console.log('[SOCKET] Client Linked:', socket.id);
-
     socket.on('join-campaign', (campaignId) => {
       socket.join(campaignId);
       console.log(`[SOCKET] Node joined room: ${campaignId}`);
     });
-
-    socket.on('disconnect', () => {
-      console.log('[SOCKET] Node disconnected');
-    });
   });
 
-  // Make IO accessible globally for BullMQ workers
+  // Global instance for workers
   global.io = io;
-
-  httpServer.once('error', (err) => {
-    console.error(err);
-    process.exit(1);
-  });
 
   httpServer.listen(port, () => {
     console.log(`> Command Center Online: http://${hostname}:${port}`);

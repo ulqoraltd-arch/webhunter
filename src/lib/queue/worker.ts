@@ -1,11 +1,10 @@
 /**
- * PRODUCTION SCRAPING WORKER (OPTIMIZED)
- * - Atomic-safe target stop
- * - Standardized Socket.IO Telemetry
+ * PRODUCTION WORKER HUB
+ * Manages Discovery (Serper) and Scraping (Axios) queues.
  */
 import { Worker, Job } from 'bullmq';
-import { SCRAPING_QUEUE_NAME } from './config';
-import { processDomainExtraction } from '@/app/lib/scraper-engine';
+import { DISCOVERY_QUEUE_NAME, SCRAPING_QUEUE_NAME, scrapingQueue, discoveryQueue } from './config';
+import { discoverDomains, scrapeDomain } from '@/app/lib/scraper-engine';
 import { initializeFirebase } from '@/firebase';
 import {
   doc,
@@ -16,136 +15,152 @@ import {
   addDoc,
   getDoc,
 } from 'firebase/firestore';
+import { redis } from '@/lib/redis';
 
 const { firestore } = initializeFirebase();
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error('timeout')), ms)
-    ),
-  ]);
-}
+/* ================= DISCOVERY WORKER ================= */
 
-let TARGET_REACHED_CACHE: Record<string, boolean> = {};
+export const discoveryWorker = new Worker(
+  DISCOVERY_QUEUE_NAME,
+  async (job: Job) => {
+    const { campaignId, adminId, runId, keyword, start, targetCount } = job.data;
+
+    try {
+      // Emit pagination log
+      if ((global as any).io) {
+        (global as any).io.to(campaignId).emit('campaign:progress', {
+          domain: `[SERP Page ${Math.floor(start/10) + 1}]`,
+          emailsFound: 0,
+          node: `Discovering targets for: ${keyword}`,
+        });
+      }
+
+      // 1. Fetch Serper Results
+      const { domains, hasMore } = await discoverDomains(keyword, start);
+
+      // 2. Queue Scraping Jobs for each domain
+      for (const domain of domains) {
+        await scrapingQueue.add(`scrape-${domain}`, {
+          domain,
+          campaignId,
+          adminId,
+          runId,
+          targetCount,
+        });
+      }
+
+      // 3. Check if we need more domains
+      const campaignSnap = await getDoc(doc(firestore, 'admins', adminId, 'campaigns', campaignId));
+      const currentCount = campaignSnap.data()?.validEmailsCount || 0;
+
+      if (hasMore && currentCount < targetCount) {
+        // Queue next page with delay to prevent rate limit
+        await discoveryQueue.add(`discover-${keyword}-${start + 10}`, {
+          ...job.data,
+          start: start + 10,
+        }, { delay: 2000 });
+      }
+
+      return { discovered: domains.length };
+    } catch (error: any) {
+      console.error(`[DISCOVERY ERROR] ${job.id}:`, error.message);
+      throw error;
+    }
+  },
+  { connection: redis as any, concurrency: 1 }
+);
+
+/* ================= SCRAPING WORKER ================= */
 
 export const scrapingWorker = new Worker(
   SCRAPING_QUEUE_NAME,
   async (job: Job) => {
-    const { domain, campaignId, adminId, runId } = job.data;
-    const nodeIndex = Number(job.id || 0) % 4;
+    const { domain, campaignId, adminId, runId, targetCount } = job.data;
 
     const campaignRef = doc(firestore, 'admins', adminId, 'campaigns', campaignId);
     const runRef = doc(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId);
 
     try {
-      // 1. Initial Reporting (Move the "Nodes Dispatched" counter)
-      if ((global as any).io) {
-        (global as any).io.to(campaignId).emit('campaign:start', { campaignId, domain });
-      }
-
-      await updateDoc(runRef, {
-        progressUrlsProcessed: increment(1),
-        updatedAt: serverTimestamp(),
-      });
-
-      if (TARGET_REACHED_CACHE[campaignId]) {
-        return { status: 'skipped_target_met' };
-      }
-
-      const campaignSnap = await getDoc(campaignRef);
-      if (!campaignSnap.exists()) return { status: 'campaign_not_found' };
-
-      const campaignData = campaignSnap.data();
-
-      // Check if target is met
-      if (campaignData.validEmailsCount >= campaignData.targetEmailCount) {
-        TARGET_REACHED_CACHE[campaignId] = true;
-        await updateDoc(campaignRef, { status: 'Completed', updatedAt: serverTimestamp() });
-        if ((global as any).io) {
-          (global as any).io.to(campaignId).emit('campaign:completed', { campaignId });
-        }
+      // Atomic Stop Condition check
+      const campSnap = await getDoc(campaignRef);
+      if (!campSnap.exists()) return { status: 'aborted' };
+      if (campSnap.data().validEmailsCount >= targetCount) {
+        await updateDoc(campaignRef, { status: 'Completed' });
+        if ((global as any).io) (global as any).io.to(campaignId).emit('campaign:completed', { campaignId });
         return { status: 'target_met' };
       }
 
-      // 2. Extraction Execution
-      let result;
-      try {
-        result = await withTimeout(
-          processDomainExtraction(job.data, nodeIndex),
-          25000
-        );
-      } catch {
-        return { status: 'timeout_skipped' };
+      // 1. Dispatch Heartbeat
+      await updateDoc(runRef, { progressUrlsProcessed: increment(1), updatedAt: serverTimestamp() });
+
+      // 2. Perform Axios Extraction
+      const result = await scrapeDomain(domain);
+
+      if (result.status === 'no_emails' || result.emails.length === 0) {
+        return { status: 'skipped_no_emails' };
       }
 
-      const validEmails = result.emails.filter((e: any) => e.isValid);
-      const validCount = validEmails.length;
-      const flaggedCount = result.emails.length - validCount;
-
-      if (result.status === 'no_emails' || validCount === 0) {
-        return { status: 'no_emails_skipped' };
-      }
-
-      const domainCol = collection(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId, 'domains');
-
-      // 3. Atomic Updates for Yield
+      // 3. Success -> Atomic Yield Update
+      const validCount = result.emails.length;
+      
       await Promise.all([
         updateDoc(runRef, {
           progressDomainsWithEmails: increment(1),
-          totalEmailsExtracted: increment(result.emails.length),
+          totalEmailsExtracted: increment(validCount),
           validEmailsExtracted: increment(validCount),
-          flaggedEmailsExtracted: increment(flaggedCount),
           updatedAt: serverTimestamp(),
         }),
         updateDoc(campaignRef, {
           totalDomainsFetched: increment(1),
-          totalEmailsExtracted: increment(result.emails.length),
+          totalEmailsExtracted: increment(validCount),
           validEmailsCount: increment(validCount),
-          flaggedEmailsCount: increment(flaggedCount),
           updatedAt: serverTimestamp(),
         }),
       ]);
 
       // 4. Persistence
-      await addDoc(domainCol, {
+      const domainCol = collection(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId, 'domains');
+      const domainDoc = await addDoc(domainCol, {
         domainName: domain,
         adminUserId: adminId,
         campaignId,
         campaignRunId: runId,
-        emailCount: result.emails.length,
-        status: result.status,
+        emailCount: validCount,
+        status: 'success',
         pageUrls: result.pagesScanned,
-        metadata: JSON.stringify(result.metadata),
-        lastScrapedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       });
 
-      // 5. Final Socket Emission for success
-      if ((global as any).io) {
-        (global as any).io.to(campaignId).emit('campaign:progress', {
-          campaignId,
-          domain,
-          emailsFound: validCount,
-          node: result.metadata.apiNode,
-          timestamp: new Date().toISOString(),
+      // 5. Save individual emails
+      const emailCol = collection(firestore, 'admins', adminId, 'campaigns', campaignId, 'runs', runId, 'domains', domainDoc.id, 'emails');
+      for (const email of result.emails) {
+        await addDoc(emailCol, {
+          emailAddress: email,
+          isValid: true,
+          validationStatus: 'valid',
+          createdAt: serverTimestamp(),
         });
       }
 
-      return result;
+      // 6. Socket.IO Telemetry
+      if ((global as any).io) {
+        (global as any).io.to(campaignId).emit('campaign:progress', {
+          domain,
+          emailsFound: validCount,
+          node: 'Axios Node Active',
+        });
+      }
+
+      return { status: 'success', emails: validCount };
     } catch (error: any) {
-      console.error(`[WORKER ERROR] Job ${job.id}:`, error.message);
+      console.error(`[SCRAPER ERROR] ${domain}:`, error.message);
       throw error;
     }
   },
-  {
-    connection: (global as any).redis || {},
-    concurrency: 15,
-    limiter: {
-      max: 50,
-      duration: 5000,
-    },
+  { 
+    connection: redis as any, 
+    concurrency: 8,
+    limiter: { max: 10, duration: 1000 }
   }
 );

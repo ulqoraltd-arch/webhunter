@@ -1,18 +1,17 @@
 import { Queue } from 'bullmq';
 import { redis } from '@/lib/redis';
 
+/**
+ * WEB HUNTER PRO - QUEUE CONFIGURATION
+ * 
+ * DISCOVERY_QUEUE: For Serper API pagination tasks.
+ * SCRAPING_QUEUE: For Axios-based website crawling.
+ */
+
+export const DISCOVERY_QUEUE_NAME = 'discovery-tasks';
 export const SCRAPING_QUEUE_NAME = 'scraping-tasks';
-export const PLAYWRIGHT_FALLBACK_QUEUE_NAME = 'playwright-tasks';
 
-// PRODUCTION RATE LIMIT CONFIG
-// Prevents API node bans by throttling job throughput at the Redis level.
-// 100 jobs every 10 seconds (10 jobs/sec) per worker instance.
-const RATE_LIMITER_CONFIG = {
-  max: 100,
-  duration: 10000,
-};
-
-export const scrapingQueue = new Queue(SCRAPING_QUEUE_NAME, {
+const DEFAULT_OPTIONS = {
   connection: redis as any,
   defaultJobOptions: {
     attempts: 3,
@@ -23,15 +22,7 @@ export const scrapingQueue = new Queue(SCRAPING_QUEUE_NAME, {
     removeOnComplete: true,
     removeOnFail: false,
   },
-});
+};
 
-export const playwrightQueue = new Queue(PLAYWRIGHT_FALLBACK_QUEUE_NAME, {
-  connection: redis as any,
-  defaultJobOptions: {
-    attempts: 2,
-    backoff: {
-      type: 'fixed',
-      delay: 10000,
-    },
-  },
-});
+export const discoveryQueue = new Queue(DISCOVERY_QUEUE_NAME, DEFAULT_OPTIONS);
+export const scrapingQueue = new Queue(SCRAPING_QUEUE_NAME, DEFAULT_OPTIONS);
